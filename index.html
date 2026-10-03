@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="application-name" content="MacUI for qBittorrent" />
+    <meta name="description" content="A macOS-styled WebUI for qBittorrent" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#1e1e1e" />
+    <!-- iOS standalone support -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" type="image/png" href="./icons/favicon.png" sizes="64x64" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <title>qBittorrent</title>
+    <script>
+      // Apply the persisted theme before first paint to avoid a flash of the
+      // wrong colour scheme. Mirrors the "class='dark' by default" trick used
+      // by the stock WebUI.
+      ;(() => {
+        try {
+          const stored = localStorage.getItem('macui.theme')
+          const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          const dark = stored === 'dark' || ((stored === 'system' || !stored) && prefersDark)
+          document.documentElement.classList.toggle('dark', dark)
+          if (stored) document.documentElement.dataset.theme = stored
+        } catch {
+          /* ignore — defaults to dark */
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

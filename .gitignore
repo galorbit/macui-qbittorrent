@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output.
+#
+# `dist/` is the normal output. `private/` and `public/` are listed too because
+# `publish-dist-branch.mjs` rebuilds this working tree in place to construct the
+# `dist` branch; if that run is interrupted it can leave those two directories
+# sitting in the project root. They are build output wherever they appear, so
+# they must never be committed — they were, once, which is why this note exists.
+dist/
+/private/
+/public/
+
+# Packaged theme archives
+deploy/*.zip
+
+# Local environment
+*.local
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Caches / logs
+.vite/
+coverage/
+*.tsbuildinfo
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Scratch artefacts from the visual-check scripts
+*-preview.html
+*-preview.png
+shot-*.png
+ui-check.*
+file-row-preview.*

@@ -1,0 +1,101 @@
+/* ==========================================================================
+   Frosted glass utilities
+   --------------------------------------------------------------------------
+   The single most important rule here: NEVER rely on backdrop-filter alone.
+   A translucent surface over arbitrary page content (a torrent name, a
+   progress bar) can render text illegible. So every glass surface declares an
+   opaque `background` first and only *upgrades* to translucency + blur inside
+   an @supports block.
+   ========================================================================== */
+
+/* Opaque, always-readable baseline. */
+.glass {
+  background: var(--glass-solid);
+  border: 1px solid var(--border);
+}
+
+.glass-panel {
+  background: var(--glass-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Card-like surface with a faint top sheen. `.raised` is the workhorse for
+   panels on content pages: it reads as a distinct layer without the cost of
+   backdrop-filter. */
+.raised {
+  position: relative;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.raised::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 50%;
+  background: var(--sheen);
+  pointer-events: none;
+}
+
+.glass-bar {
+  background: var(--glass-solid);
+  border-bottom: 1px solid var(--separator);
+}
+
+.glass-overlay {
+  background: rgba(0, 0, 0, 0.32);
+}
+
+/* Progressive enhancement: only add blur where it is actually supported.
+   Both the unprefixed and -webkit- forms are tested, because Safari still
+   needs the prefix. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border-color: var(--glass-border);
+  }
+
+  .glass-panel {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border-color: var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .glass-bar {
+    background: var(--bg-toolbar);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border-bottom-color: var(--border);
+  }
+
+  .glass-overlay {
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    background: rgba(0, 0, 0, 0.28);
+  }
+}
+
+/* Performance escape hatch: backdrop-filter on a long scrolling list is
+   expensive, particularly on mobile GPUs. Applied when the user (or the
+   runtime) asks for it, e.g. a low-power / reduced-effects mode. */
+.no-glass .glass,
+.no-glass .glass-panel {
+  background: var(--glass-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.no-glass .glass-bar {
+  background: var(--glass-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}

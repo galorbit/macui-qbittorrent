@@ -1,0 +1,91 @@
+#!/bin/sh
+#
+# post-commit — keep the `dist` branch in step with `main`.
+#
+# The deployment host has no Node.js, so it pulls compiled files from the `dist`
+# branch. That branch is only useful if it never lags behind, so rebuilding it
+# is automated here rather than left to memory.
+#
+# Design choices, all deliberate:
+#
+#   * Only runs on `main`. Committing on `dist` itself (or any other branch)
+#     must not recurse.
+#   * Only runs when the build INPUTS changed. A docs-only commit does not need
+#     a new build, and rebuilding every time would churn the branch for nothing.
+#   * Never blocks the commit. The commit has already landed by the time this
+#     runs, so a failure here is reported but never fails the commit — losing a
+#     commit to a flaky build would be much worse than a stale `dist`.
+#   * Does NOT push. Pushing is the developer's explicit act, and a hook that
+#     silently pushes is a good way to publish something unintended.
+#
+# To skip a rebuild:  SKIP_DIST_SYNC=1 git commit ...
+# To publish afterwards: pnpm publish:dist
+
+set -u
+
+if [ "${SKIP_DIST_SYNC:-}" = "1" ]; then
+  echo "[post-commit] SKIP_DIST_SYNC=1 — dist branch not rebuilt."
+  exit 0
+fi
+
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+
+if [ "$branch" != "main" ]; then
+  exit 0
+fi
+
+# Paths whose contents change the build output.
+BUILD_INPUTS="src static static-public index.html vite.config.ts tsconfig.json package.json pnpm-lock.yaml"
+
+changed=$(git show --name-only --pretty=format: HEAD 2>/dev/null || echo "")
+
+if [ -z "$changed" ]; then
+  exit 0
+fi
+
+needs_build=0
+for file in $changed; do
+  for input in $BUILD_INPUTS; do
+    case "$file" in
+      "$input"|"$input"/*)
+        needs_build=1
+        break 2
+        ;;
+    esac
+  done
+done
+
+if [ "$needs_build" -eq 0 ]; then
+  echo "[post-commit] No build inputs changed — dist branch is still current."
+  exit 0
+fi
+
+# A dirty tree means the build would not represent this commit.
+if [ -n "$(git status --porcelain)" ]; then
+  echo "[post-commit] Working tree is dirty; skipping dist rebuild."
+  echo "              Commit or stash, then run: pnpm build && pnpm publish:dist"
+  exit 0
+fi
+
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "[post-commit] pnpm not found — run manually: pnpm build && pnpm publish:dist"
+  exit 0
+fi
+
+echo "[post-commit] Build inputs changed; rebuilding dist branch…"
+
+if ! pnpm build; then
+  echo "[post-commit] BUILD FAILED — dist branch left as-is."
+  echo "              Fix the build, then: pnpm build && pnpm publish:dist"
+  exit 0
+fi
+
+# Local commit only; pushing stays a deliberate act.
+if node scripts/publish-dist-branch.mjs; then
+  echo "[post-commit] dist branch updated locally."
+  echo "[post-commit] Publish with: git push origin dist"
+else
+  echo "[post-commit] dist publish FAILED — run: pnpm publish:dist"
+fi
+
+exit 0

@@ -1,0 +1,1 @@
+macui-qbittorrent 0.1.0

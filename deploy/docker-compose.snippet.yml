@@ -1,0 +1,60 @@
+# =============================================================================
+# MacUI for qBittorrent — deployment snippet
+# =============================================================================
+# Add the `volumes` entry below to your existing qBittorrent service, then
+# point qBittorrent at the mount path.
+#
+# IMPORTANT: the path you enter in qBittorrent must be the folder that CONTAINS
+# `public/` and `private/` — i.e. the `dist` folder itself, mounted as /macos-theme.
+# Pointing at `dist/private` produces:
+#   "Unacceptable file type, only regular file is allowed."
+# -----------------------------------------------------------------------------
+
+services:
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Shanghai
+      - WEBUI_PORT=8080
+      - TORRENTING_PORT=6881
+    volumes:
+      - /path/to/appdata:/config
+      - /path/to/downloads:/downloads
+      # >>> MacUI theme (read-only; qBittorrent never writes here) <<<
+      # Adjust the host side to wherever you put this project's dist/ folder.
+      - /path/to/macos-webui/dist:/macos-theme:ro
+    ports:
+      - 8080:8080
+      - 6881:6881
+      - 6881:6881/udp
+    stop_grace_period: "10s"
+    restart: unless-stopped
+
+# =============================================================================
+# After starting the container, enable the theme:
+# =============================================================================
+#
+#   Option A — WebUI (recommended)
+#     1. Open http://<host>:8080
+#     2. Settings -> WebUI tab
+#     3. Tick "Use alternative WebUI"
+#     4. "Files location" = /macos-theme      <-- container path, not the host path
+#     5. Save
+#
+#   Option B — edit qBittorrent.conf directly
+#     !! STOP THE CONTAINER FIRST !!
+#     qBittorrent rewrites this file on exit, so editing it while the container
+#     is running will lose your change.
+#
+#       docker stop qbittorrent
+#       # edit <appdata>/qBittorrent/qBittorrent.conf and add under [Preferences]:
+#       #   WebUI\AlternativeUIEnabled=true
+#       #   WebUI\RootFolder=/macos-theme
+#       docker start qbittorrent
+#
+#   To roll back: untick "Use alternative WebUI" (or delete the two keys above).
+#   The stock WebUI returns immediately; nothing else is modified.
+# =============================================================================
