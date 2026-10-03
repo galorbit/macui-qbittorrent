@@ -11,7 +11,7 @@
  * 2. settings.png was blank because the mock `app/preferences` payload had FOUR
  *    fields. The view loaded, found almost nothing to render, and painted an
  *    empty page. Fixed by deriving the payload from the project's own settings
- *    schema (`_gen-prefs.mjs`), so it cannot drift out of date again.
+ *    schema (`gen-prefs-fixture.mjs`), so it cannot drift out of date again.
  *
  * The previous verifier passed BOTH of these, because it only asked whether the
  * page had text — and the sidebar always has text. The check below is
@@ -31,7 +31,7 @@ const CDP = 9252
 fs.mkdirSync(OUT, { recursive: true })
 
 // Derived from src/config/settings-schema.ts — never hand-maintained.
-const PREFS = JSON.parse(execFileSync('node', ['scripts/_gen-prefs.mjs'], { encoding: 'utf8' }))
+const PREFS = JSON.parse(execFileSync('node', ['scripts/gen-prefs-fixture.mjs'], { encoding: 'utf8' }))
 
 const TORRENT = (hash, name, state, over) => ({
   hash, name, size: 6111754240, progress: 0.62, dlspeed: 0, upspeed: 0, ratio: 0.21,
@@ -338,6 +338,25 @@ try {
   await sleep(400)
   fs.rmSync(profile, { recursive: true, force: true })
   server.close()
+}
+
+/*
+ * Finish with the independent pixel check.
+ *
+ * The per-shot `expect` above runs in the PAGE and proves the DOM was correct.
+ * This second pass decodes the PNGs that were actually written and proves the
+ * FILES are not blank — the failure mode that shipped twice. It is deliberately
+ * separate code, so it is a real check rather than a restatement of the first.
+ */
+if (failures === 0) {
+  console.log('\nVerifying the written files are not blank…')
+  try {
+    execFileSync('node', ['scripts/verify-docs-shots.mjs', 'docs/screenshots'], {
+      stdio: 'inherit',
+    })
+  } catch {
+    failures += 1
+  }
 }
 
 console.log(failures === 0 ? `\nRESULT: ${written.length} screenshots rendered and content-verified` : `\nRESULT: ${failures} screenshot(s) failed the content check`)

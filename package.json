@@ -26,7 +26,8 @@
     "typecheck": "vue-tsc --noEmit",
     "verify:dist": "node scripts/verify-dist-tree.mjs dist",
     "verify:entry": "node scripts/verify-public-entry.mjs dist",
-    "verify:settings": "node scripts/verify-settings-layout.mjs dist"
+    "verify:settings": "node scripts/verify-settings-layout.mjs dist",
+    "verify:shots": "node scripts/verify-docs-shots.mjs docs/screenshots"
   },
   "dependencies": {
     "axios": "^1.7.9",
