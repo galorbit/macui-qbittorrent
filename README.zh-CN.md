@@ -385,6 +385,7 @@ pnpm typecheck   # 仅运行 vue-tsc
 | `pnpm verify:dist` | 用编译产物回放 qBittorrent 的路径解析规则。 |
 | `pnpm verify:entry` | 在 jsdom 中驱动未登录入口页。 |
 | `pnpm verify:settings` | 断言设置页布局没有回归。 |
+| `pnpm docs:shots` | 从编译产物重新生成 README 截图。 |
 | `pnpm publish:dist` | 重建并推送 `dist` 分支。 |
 
 ### 让开发服务器指向 qBittorrent

@@ -409,6 +409,7 @@ pnpm typecheck   # vue-tsc only
 | `pnpm verify:dist` | Replays qBittorrent's path resolution against a built tree. |
 | `pnpm verify:entry` | Drives the signed-out entry page in jsdom. |
 | `pnpm verify:settings` | Asserts the settings layout did not regress. |
+| `pnpm docs:shots` | Regenerates the README screenshots from the built app. |
 | `pnpm publish:dist` | Rebuilds and pushes the `dist` branch. |
 
 ### Pointing the dev server at qBittorrent
