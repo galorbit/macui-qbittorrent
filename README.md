@@ -634,11 +634,24 @@ that requires patching qBittorrent itself.
 
 [MIT](LICENSE).
 
-qBittorrent is licensed separately under GPL-2.0-or-later. This project is an
-independent front-end that talks to its WebAPI over HTTP; it contains no
-qBittorrent source code. The brand mark in the sidebar reproduces the official
-qBittorrent icon geometry so the theme is recognisable, and that artwork remains
-the property of the qBittorrent project.
+### Third-party notices
+
+This project is an independent WebUI that communicates with qBittorrent solely
+through its public WebAPI. It is **not affiliated with, endorsed by, or derived
+from** the qBittorrent project's own source code.
+
+"qBittorrent" is the name of the upstream application, which is licensed under
+the GNU General Public License v2 (or later). This project contains no
+qBittorrent source code; it merely targets its documented HTTP API.
+
+The brand mark in the sidebar reproduces the official qBittorrent icon
+letterforms so the theme stays recognisable. That artwork remains the property
+of the qBittorrent project.
+
+Prior art that informed the alternative-WebUI approach:
+
+- [VueTorrent](https://github.com/VueTorrent/VueTorrent)
+- [linuxserver/docker-qbittorrent](https://github.com/linuxserver/docker-qbittorrent)
 
 ### Credits
 

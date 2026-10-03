@@ -598,10 +598,21 @@ pnpm verify:dist
 
 [MIT](LICENSE)。
 
-qBittorrent 本身以 GPL-2.0-or-later 单独授权。本项目是一个通过 HTTP 调用其
-WebAPI 的独立前端,不包含任何 qBittorrent 源代码。侧边栏中的品牌标识复刻了
-官方 qBittorrent 图标的字形轮廓,以便主题具有辨识度;
+### 第三方声明
+
+本项目是一个独立 WebUI,仅通过 qBittorrent 公开的 WebAPI 与其通信,
+**与 qBittorrent 项目本身没有隶属、背书或源码衍生关系**。
+
+「qBittorrent」是上游应用的名称,其自身以 GNU 通用公共许可证 v2(或更高版本)
+授权。本项目**不包含任何 qBittorrent 源代码**,只是调用其公开文档化的 HTTP 接口。
+
+侧边栏中的品牌标识复刻了官方 qBittorrent 图标的字形,以便主题保持辨识度。
 该图形作品的版权仍归 qBittorrent 项目所有。
+
+在「替代 WebUI」这一思路上提供参考的先行项目:
+
+- [VueTorrent](https://github.com/VueTorrent/VueTorrent)
+- [linuxserver/docker-qbittorrent](https://github.com/linuxserver/docker-qbittorrent)
 
 ### 致谢
 
