@@ -89,11 +89,45 @@ export async function setForceStart(hashes: string[], value: boolean): Promise<v
   await http.post('torrents/setForceStart', toForm({ hashes: joinHashes(hashes), value }))
 }
 
+/**
+ * Automatic Torrent Management.
+ *
+ * Confirmed against `setAutoManagementAction` in torrentscontroller.cpp: the
+ * parameter is `enable`, not `value` — several neighbouring endpoints in this
+ * file use `value`, so it is worth not guessing.
+ */
+export async function setAutoManagement(hashes: string[], enable: boolean): Promise<void> {
+  await http.post('torrents/setAutoManagement', toForm({ hashes: joinHashes(hashes), enable }))
+}
+
+/**
+ * Super seeding (initial seeding) mode.
+ *
+ * `setSuperSeedingAction` takes `value` — the opposite convention to
+ * setAutoManagement, which is exactly why both are documented here.
+ *
+ * Only meaningful for a torrent that is already complete; the server rejects it
+ * for an incomplete one, so the context menu hides the item until progress
+ * reaches 1.
+ */
+export async function setSuperSeeding(hashes: string[], value: boolean): Promise<void> {
+  await http.post('torrents/setSuperSeeding', toForm({ hashes: joinHashes(hashes), value }))
+}
+
+/**
+ * Sequential download.
+ *
+ * The server only offers `torrents/toggleSequentialDownload` — there is no
+ * setter — so a desired end state has to be compared against the current one and
+ * skipped when it already matches. Otherwise "turn sequential on" for an
+ * already-sequential torrent would turn it off.
+ */
 export async function setSequentialDownload(hashes: string[], value: boolean): Promise<void> {
   await http.post('torrents/toggleSequentialDownload', toForm({ hashes: joinHashes(hashes) }))
   void value
 }
 
+/** As above: `torrents/toggleFirstLastPiecePrio` is the only endpoint. */
 export async function toggleFirstLastPiecePrio(hashes: string[]): Promise<void> {
   await http.post('torrents/toggleFirstLastPiecePrio', toForm({ hashes: joinHashes(hashes) }))
 }
@@ -106,6 +140,22 @@ export async function setCategory(hashes: string[], category: string): Promise<v
 
 export async function setLocation(hashes: string[], location: string): Promise<void> {
   await http.post('torrents/setLocation', toForm({ hashes: joinHashes(hashes), location }))
+}
+
+/**
+ * Create a category.
+ *
+ * `createCategoryAction` requires `category` and takes an optional `savePath`.
+ * Assigning a category that does not exist fails server-side, so the caller
+ * creates it first — see `onCategoryConfirm` in DashboardView.
+ */
+export async function createCategory(category: string, savePath = ''): Promise<void> {
+  await http.post('torrents/createCategory', toForm({ category, savePath }))
+}
+
+/** Remove categories by name. The endpoint expects a newline-separated list. */
+export async function removeCategories(categories: string[]): Promise<void> {
+  await http.post('torrents/removeCategories', toForm({ categories: categories.join('\n') }))
 }
 
 export async function renameTorrent(hash: string, name: string): Promise<void> {
@@ -298,4 +348,34 @@ export async function exportTorrent(hash: string): Promise<Blob> {
 export async function getTorrentPieceStates(hash: string): Promise<number[]> {
   const res = await http.get<number[]>('torrents/pieceStates', { params: { hash } })
   return Array.isArray(res.data) ? res.data : []
+}
+
+/**
+ * Build a magnet link for a torrent.
+ *
+ * There is no server endpoint for this — the official WebUI assembles it
+ * client-side from the info hash, the display name and the tracker list, and so
+ * does this.
+ *
+ * v2 first when present: a hybrid torrent is reachable by either hash, but the
+ * v2 form is the one that can still find peers if v1 support disappears. The
+ * `btmh` parameter carries a v2 hash, `btih` a v1 one.
+ *
+ * `trackers` is optional; passing the torrent's announce URLs makes the link
+ * self-contained, which matters when pasting it somewhere without DHT.
+ */
+export function buildMagnetLink(
+  hash: string,
+  name?: string,
+  trackers?: string[],
+  infohashV2?: string,
+): string {
+  const params = new URLSearchParams()
+  if (infohashV2) params.set('xt', `urn:btmh:1220${infohashV2}`)
+  else params.set('xt', `urn:btih:${hash}`)
+  if (name) params.set('dn', name)
+  for (const url of trackers ?? []) {
+    if (url && !url.startsWith('**')) params.append('tr', url)
+  }
+  return `magnet:?${params.toString()}`
 }

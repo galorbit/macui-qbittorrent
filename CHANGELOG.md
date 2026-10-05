@@ -38,6 +38,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Right-click menu on the torrent list, mirroring the stock WebUI's
+  `torrentsTableMenu`.** Right-click a row on desktop, long-press a card on
+  mobile. Menu items are data (`src/composables/useTorrentContextMenu.ts`), so the
+  visibility rules can be unit-tested without mounting anything, and the chrome is
+  our own (`MacContextMenu.vue`) — frosted panel, mac corner radii, submenus and
+  tri-state ticks, not the stock DOM.
+  - Lifecycle start / stop / force start are mutually pruned by the stock menu's
+    own three-branch rule — stop disappears when everything is already stopped,
+    force start when everything is already force-started, and start when the whole
+    selection is already running and there is nothing for it to do. The last
+    branch was missing here, so the menu offered a Start that could only ever be a
+    no-op.
+  - The download limit disappears once the whole selection is complete, as in the
+    stock menu, taking its separator down to the upload limit with it.
+  - Category and tag submenus, per-torrent rate limits, share-ratio limit,
+    automatic torrent management, queue priority, set location, rename (and
+    rename files when metadata exists), recheck, reannounce, export, copy
+    (name / hash / magnet / path) and both delete variants.
+  - Sequential download and first-last-piece-prio are replaced by Super seeding
+    once the selection is complete, because the first two only apply while
+    downloading.
+  - **Every item has a real effect.** There is no placeholder branch: each id maps
+    to an API call, a clipboard write, a file download or a real dialog, asserted
+    per item by `src/__tests__/context-menu-actions.spec.ts`.
 - **Full preferences editor: 162 settings across 8 groups** (Behaviour,
   Downloads, Connection, Speed, BitTorrent, RSS, WebUI, Advanced), replacing the
   previous 28-field subset. Driven declaratively by

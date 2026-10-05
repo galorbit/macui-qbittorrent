@@ -53,6 +53,21 @@ export interface Torrent {
   state: TorrentState
   seq_dl: boolean
   f_l_piece_prio: boolean
+  /**
+   * Force-start flag.
+   *
+   * Key confirmed from `serialize_torrent.h` (`KEY_TORRENT_FORCE_START`).
+   * Optional because it is absent on some builds; the context menu treats a
+   * missing value as false.
+   */
+  force_start?: boolean
+  /**
+   * Super seeding (initial seeding) mode.
+   *
+   * Key confirmed from `serialize_torrent.h` (`KEY_TORRENT_SUPER_SEEDING`).
+   * Only reports true for a complete torrent.
+   */
+  super_seeding?: boolean
   completion_on: number
   tracker: string
   dl_limit: number

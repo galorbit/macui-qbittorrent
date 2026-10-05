@@ -9,13 +9,14 @@
  * Both render from the same sorted/filtered collection, so switching viewport
  * size never loses the user's place in the list.
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useBreakpoint } from '@/composables/useBreakpoint'
 import { useSessionStore } from '@/stores/session'
 import { useTorrentFilter } from '@/composables/useTorrentFilter'
 import { useToast, describeError } from '@/composables/useToast'
+import { buildTorrentMenu } from '@/composables/useTorrentContextMenu'
 import { formatBytes, formatSpeed } from '@/utils/format'
 import * as api from '@/api/torrents'
 
@@ -26,11 +27,14 @@ import MacSelect from '@/components/base/MacSelect.vue'
 import MacSegmented from '@/components/base/MacSegmented.vue'
 import MacEmptyState from '@/components/base/MacEmptyState.vue'
 import MacSpinner from '@/components/base/MacSpinner.vue'
+import MacContextMenu from '@/components/base/MacContextMenu.vue'
+import MacPromptDialog from '@/components/base/MacPromptDialog.vue'
 import TorrentTable, { type SortKey } from '@/components/torrent/TorrentTable.vue'
 import TorrentCard from '@/components/torrent/TorrentCard.vue'
 import TorrentToolbar from '@/components/torrent/TorrentToolbar.vue'
 import AddTorrentModal from '@/components/torrent/AddTorrentModal.vue'
 import ConfirmDialog from '@/components/base/ConfirmDialog.vue'
+import type { Torrent } from '@/types/api'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -214,6 +218,19 @@ async function pause(hash?: string): Promise<void> {
   await withAction(t('action.pause'), () => api.pauseTorrents(hashes))
 }
 
+/**
+ * Force start the selection.
+ *
+ * Unlike resume, force start makes the torrent ignore the queue and the
+ * share-ratio / seeding-time limits, which is why the official WebUI lists it
+ * separately rather than folding it into Start.
+ */
+async function forceStart(hash?: string): Promise<void> {
+  const hashes = targetHashes(hash)
+  if (!hashes.length) return
+  await withAction(t('action.forceStart'), () => api.setForceStart(hashes, true))
+}
+
 async function recheck(hash?: string): Promise<void> {
   const hashes = targetHashes(hash)
   if (!hashes.length) return
@@ -267,9 +284,447 @@ async function setCategoryForSelection(value: string): Promise<void> {
   await withAction(t('action.setCategory'), () => api.setCategory(hashes, value))
 }
 
+// ---- Context menu ------------------------------------------------------
+
+/**
+ * Open menu state.
+ *
+ * Right-clicking a torrent that is NOT already selected selects it first, which
+ * is what every file manager does and what the official WebUI does. Without it,
+ * right-clicking a different row would silently act on the previous selection —
+ * a genuinely dangerous behaviour for the Remove items.
+ */
+const menuOpen = ref(false)
+const menuX = ref(0)
+const menuY = ref(0)
+/** The torrent the menu was opened on, used for single-torrent actions. */
+const menuHash = ref<string | null>(null)
+
+// Prompt dialogs driven from the menu. Each is a one-field modal; see
+// MacPromptDialog for why they share a component.
+const renamePromptOpen = ref(false)
+const renameInitial = ref('')
+const locationPromptOpen = ref(false)
+const dlLimitPromptOpen = ref(false)
+const upLimitPromptOpen = ref(false)
+const ratioPromptOpen = ref(false)
+const categoryPromptOpen = ref(false)
+const tagPromptOpen = ref(false)
+
+/**
+ * Parse a rate-limit value the user typed.
+ *
+ * Accepts a bare number (bytes/s), or a number with a unit suffix — `500 KiB`,
+ * `2 MiB`, `1.5 MB`. Returns null for an empty field, which means "no limit"
+ * and must be sent as 0 rather than omitted.
+ */
+function parseRateLimit(raw: string): number | null {
+  const text = raw.trim()
+  if (!text) return null
+
+  const m = /^([0-9]*\.?[0-9]+)\s*(b|kib|kb|mib|mb|gib|gb)?$/i.exec(text)
+  if (!m) return Number.NaN
+
+  const n = Number(m[1])
+  const unit = (m[2] ?? 'b').toLowerCase()
+  const factor: Record<string, number> = {
+    b: 1,
+    kb: 1000,
+    kib: 1024,
+    mb: 1000 * 1000,
+    mib: 1024 * 1024,
+    gb: 1000 * 1000 * 1000,
+    gib: 1024 * 1024 * 1024,
+  }
+  return Math.round(n * (factor[unit] ?? 1))
+}
+
+/**
+ * The torrents the menu acts on.
+ *
+ * The selection is the source of truth, NOT `menuHash`.
+ *
+ * Reading `menuHash` first looked equivalent — `openContextMenu` adopts the
+ * right-clicked row into the selection before setting it — but it silently
+ * reduced every menu action to that single torrent, so the branch below that
+ * returns the whole selection was unreachable. Right-clicking one of five
+ * ticked torrents and choosing Remove deleted one torrent instead of five.
+ * `menuHash` is kept only as a fallback for the case where the selection has
+ * been emptied while the menu is open (e.g. a torrent disappeared).
+ */
+const menuTargets = computed<Torrent[]>(() => {
+  const picked = sorted.value.filter((x) => selected.value.has(x.hash))
+  if (picked.length > 0) return picked
+  if (menuHash.value) {
+    const hit = session.torrentList.find((x) => x.hash === menuHash.value)
+    return hit ? [hit] : []
+  }
+  return []
+})
+
+const menuItems = computed(() =>
+  menuOpen.value
+    ? buildTorrentMenu({
+        t: (key, named) => t(key, named ?? {}),
+        torrents: menuTargets.value,
+        categories: session.categoryNames,
+        tags: session.tags,
+      })
+    : [],
+)
+
+/**
+ * Select exactly one torrent WITHOUT entering selection mode.
+ *
+ * `toggleSelect` sets `selectionMode = true` as a side effect, which is right
+ * when the user ticks a checkbox but wrong here: right-clicking a row on the
+ * desktop should act on that row, not convert the list into a multi-select UI.
+ * Using toggleSelect made a plain right-click reveal every checkbox.
+ *
+ * `selectOnly` is not used either, because it also mutates selectionMode.
+ */
+function selectOnlyForMenu(hash: string): void {
+  selected.value = new Set([hash])
+}
+
+function openContextMenu(payload: { hash: string; x: number; y: number }): void {
+  /*
+   * Adopt the right-clicked row when it is not already part of the selection.
+   *
+   * This is the safety-critical part: without it, right-clicking row B while
+   * row A is selected would open a menu whose "Remove" deletes row A. The menu
+   * must always act on the row the user actually pointed at.
+   *
+   * Rows that ARE part of a multi-selection are left alone, so the menu still
+   * applies to the whole selection when that is what the user built.
+   */
+  if (!selected.value.has(payload.hash)) {
+    selectOnlyForMenu(payload.hash)
+  }
+  menuHash.value = payload.hash
+  menuX.value = payload.x
+  menuY.value = payload.y
+  menuOpen.value = true
+}
+
+/**
+ * Card variant of the above.
+ *
+ * The template cannot carry a typed inline arrow — Vue compiles template
+ * expressions as plain JavaScript, so a `: { x: number }` annotation there is a
+ * syntax error.
+ */
+function openContextMenuFor(hash: string, point: { x: number; y: number }): void {
+  openContextMenu({ hash, x: point.x, y: point.y })
+}
+
+function closeContextMenu(): void {
+  menuOpen.value = false
+  menuHash.value = null
+}
+
+/** Read the clipboard, tolerating browsers that refuse the API. */
+async function copyText(text: string, label: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success(t('toast.copied', { label }))
+  } catch {
+    toast.error(t('toast.clipboardDenied'))
+  }
+}
+
+/** Act on the hashes the menu targets (which may be the whole selection). */
+async function menuAction(label: string, fn: (hashes: string[]) => Promise<unknown>): Promise<void> {
+  const hashes = menuTargets.value.map((x) => x.hash)
+  closeContextMenu()
+  if (!hashes.length) return
+  await withAction(label, () => fn(hashes))
+}
+
+/**
+ * Dispatch a menu selection.
+ *
+ * Every id here maps to a real API call or a real client-side effect. There is
+ * deliberately no placeholder branch: an item that looks clickable but does
+ * nothing is worse than an item that is absent.
+ */
+async function onMenuSelect(id: string): Promise<void> {
+  const targets = menuTargets.value
+  const hashes = targets.map((x) => x.hash)
+  const one = targets[0]
+
+  // ---- Submenu-driven actions ------------------------------------------
+  if (id.startsWith('category:')) {
+    const value = id.slice('category:'.length)
+    if (value === 'new') {
+      closeContextMenu()
+      categoryPromptOpen.value = true
+      return
+    }
+    await menuAction(value ? t('action.setCategory') : t('action.setCategory'), () =>
+      api.setCategory(hashes, value),
+    )
+    return
+  }
+
+  if (id.startsWith('tag:')) {
+    const tag = id.slice('tag:'.length)
+    await menuAction(t('menu.addTags'), () => api.addTags(hashes, [tag]))
+    return
+  }
+
+  if (id === 'tags:add') {
+    closeContextMenu()
+    tagPromptOpen.value = true
+    return
+  }
+
+  if (id === 'tags:none') {
+    const allTags = [...new Set(targets.flatMap((x) => (x.tags ?? '').split(',').map((s) => s.trim()).filter(Boolean)))]
+    if (!allTags.length) {
+      closeContextMenu()
+      return
+    }
+    await menuAction(t('menu.removeAllTags'), () => api.removeTags(hashes, allTags))
+    return
+  }
+
+  if (id.startsWith('queue:')) {
+    const map: Record<string, string> = {
+      'queue:top': 'topPrio',
+      'queue:up': 'increasePrio',
+      'queue:down': 'decreasePrio',
+      'queue:bottom': 'bottomPrio',
+    }
+    const priority = map[id]
+    if (!priority) return
+    await menuAction(t('action.queueTop'), () => api.setTorrentPriority(hashes, priority))
+    return
+  }
+
+  if (id.startsWith('copy:')) {
+    const kind = id.slice('copy:'.length)
+    closeContextMenu()
+    if (!one) return
+
+    switch (kind) {
+      case 'name':
+        await copyText(one.name, t('torrent.name'))
+        break
+      case 'hash':
+        // v2 torrents carry both; copy whichever exists, preferring v1 as the
+        // more widely useful identifier.
+        await copyText(one.infohash_v1 || one.infohash_v2 || one.hash, t('menu.infoHash'))
+        break
+      case 'magnet': {
+        // Include the tracker list so the link works without DHT.
+        let trackers: string[] = []
+        try {
+          const list = await api.getTorrentTrackers(one.hash)
+          trackers = list.map((tr) => tr.url)
+        } catch {
+          // Trackers are a nicety; a magnet without them is still valid.
+        }
+        const magnet = api.buildMagnetLink(one.hash, one.name, trackers, one.infohash_v2)
+        await copyText(magnet, t('action.copyMagnet'))
+        break
+      }
+      case 'path':
+        await copyText(one.save_path ?? '', t('menu.contentPath'))
+        break
+      default:
+        break
+    }
+    return
+  }
+
+  // ---- Direct actions ----------------------------------------------------
+  switch (id) {
+    case 'start':
+      await menuAction(t('action.resume'), () => api.resumeTorrents(hashes))
+      break
+    case 'stop':
+      await menuAction(t('action.pause'), () => api.pauseTorrents(hashes))
+      break
+    case 'forceStart': {
+      // Toggle: if everything is already force-started, turn it off.
+      const allForced = targets.every((x) => x.force_start === true)
+      await menuAction(t('action.forceStart'), () => api.setForceStart(hashes, !allForced))
+      break
+    }
+    case 'remove':
+      closeContextMenu()
+      // No hash argument: act on the whole selection, like every other item.
+      // Passing `menuHash` here capped removal at the right-clicked torrent
+      // even when several were ticked.
+      requestRemove()
+      break
+    case 'removeWithFiles':
+      closeContextMenu()
+      requestRemoveWithFiles()
+      break
+    case 'setLocation':
+      closeContextMenu()
+      locationPromptOpen.value = true
+      break
+    case 'rename':
+      closeContextMenu()
+      renamePromptOpen.value = true
+      break
+    case 'renameFiles':
+      closeContextMenu()
+      if (one) void router.push({ name: 'torrent-detail', params: { hash: one.hash }, query: { tab: 'files' } })
+      break
+    case 'autoTMM': {
+      const allOn = targets.every((x) => x.auto_tmm === true)
+      await menuAction(t('menu.autoTmm'), () => api.setAutoManagement(hashes, !allOn))
+      break
+    }
+    case 'sequential': {
+      // The server only exposes a toggle, so only send it when the state
+      // actually differs — otherwise "enable" would disable.
+      const allOn = targets.every((x) => x.seq_dl === true)
+      const wantOn = !allOn
+      const needs = targets.some((x) => (x.seq_dl === true) !== wantOn)
+      if (!needs) {
+        closeContextMenu()
+        break
+      }
+      await menuAction(t('menu.sequential'), () => api.setSequentialDownload(hashes, wantOn))
+      break
+    }
+    case 'firstLast': {
+      const allOn = targets.every((x) => x.f_l_piece_prio === true)
+      const wantOn = !allOn
+      const needs = targets.some((x) => (x.f_l_piece_prio === true) !== wantOn)
+      if (!needs) {
+        closeContextMenu()
+        break
+      }
+      await menuAction(t('menu.firstLast'), () => api.toggleFirstLastPiecePrio(hashes))
+      break
+    }
+    case 'superSeeding': {
+      const allOn = targets.every((x) => x.super_seeding === true)
+      await menuAction(t('menu.superSeeding'), () => api.setSuperSeeding(hashes, !allOn))
+      break
+    }
+    case 'downloadLimit':
+      closeContextMenu()
+      dlLimitPromptOpen.value = true
+      break
+    case 'uploadLimit':
+      closeContextMenu()
+      upLimitPromptOpen.value = true
+      break
+    case 'shareRatio':
+      closeContextMenu()
+      ratioPromptOpen.value = true
+      break
+    case 'recheck':
+      await menuAction(t('action.recheck'), () => api.recheckTorrents(hashes))
+      break
+    case 'reannounce':
+      await menuAction(t('action.reannounce'), () => api.reannounceTorrents(hashes))
+      break
+    case 'export':
+      closeContextMenu()
+      if (one) await exportTorrentFile(one)
+      break
+    default:
+      closeContextMenu()
+      break
+  }
+}
+
+/** Download the .torrent for a torrent, via a temporary object URL. */
+async function exportTorrentFile(torrent: Torrent): Promise<void> {
+  try {
+    const blob = await api.exportTorrent(torrent.hash)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${torrent.name.replace(/[/\\?%*:|"<>]/g, '_')}.torrent`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    // Revoking immediately can cancel the download in some browsers.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  } catch (err) {
+    toast.error(describeError(err))
+  }
+}
+
 // ---- Navigation --------------------------------------------------------
 function openDetail(hash: string): void {
   void router.push({ name: 'torrent-detail', params: { hash } })
+}
+
+// ---- Prompt confirmations ----------------------------------------------
+
+/** Open the rename dialog pre-filled with the current name. */
+watch(renamePromptOpen, (open) => {
+  if (open && menuTargets.value[0]) renameInitial.value = menuTargets.value[0].name
+})
+
+async function onRenameConfirm(value: string): Promise<void> {
+  const name = value.trim()
+  const one = menuTargets.value[0]
+  if (!name || !one || name === one.name) return
+  await withAction(t('action.rename'), () => api.renameTorrent(one.hash, name))
+}
+
+async function onLocationConfirm(value: string): Promise<void> {
+  const path = value.trim()
+  const hashes = menuTargets.value.map((x) => x.hash)
+  if (!path || !hashes.length) return
+  await withAction(t('action.setLocation'), () => api.setLocation(hashes, path))
+}
+
+async function onDownloadLimitConfirm(value: string): Promise<void> {
+  const limit = parseRateLimit(value)
+  const hashes = menuTargets.value.map((x) => x.hash)
+  if (limit === null || Number.isNaN(limit) || !hashes.length) return
+  await withAction(t('menu.downloadLimit'), () => api.setTorrentDownloadLimit(hashes, limit))
+}
+
+async function onUploadLimitConfirm(value: string): Promise<void> {
+  const limit = parseRateLimit(value)
+  const hashes = menuTargets.value.map((x) => x.hash)
+  if (limit === null || Number.isNaN(limit) || !hashes.length) return
+  await withAction(t('menu.uploadLimit'), () => api.setTorrentUploadLimit(hashes, limit))
+}
+
+async function onRatioConfirm(value: string): Promise<void> {
+  const ratio = Number(value.trim())
+  const hashes = menuTargets.value.map((x) => x.hash)
+  if (!Number.isFinite(ratio) || ratio < 0 || !hashes.length) return
+  // A ratio limit without a seeding-time limit; -2 means "use the global
+  // default", which is the right pairing for a per-torrent override.
+  await withAction(t('menu.shareRatio'), () => api.setShareLimits(hashes, ratio, -2))
+}
+
+async function onCategoryConfirm(value: string): Promise<void> {
+  const name = value.trim()
+  if (!name) return
+  const hashes = menuTargets.value.map((x) => x.hash)
+  if (!hashes.length) return
+  await withAction(t('action.setCategory'), async () => {
+    // The category must exist before it can be assigned.
+    await api.createCategory(name).catch(() => undefined)
+    await api.setCategory(hashes, name)
+  })
+}
+
+async function onTagConfirm(value: string): Promise<void> {
+  const tag = value.trim()
+  if (!tag) return
+  const hashes = menuTargets.value.map((x) => x.hash)
+  if (!hashes.length) return
+  await withAction(t('menu.addTags'), async () => {
+    await api.createTags([tag]).catch(() => undefined)
+    await api.addTags(hashes, [tag])
+  })
 }
 
 const summary = computed(() => ({
@@ -510,6 +965,7 @@ const summary = computed(() => ({
       :count="selected.size"
       @resume="resume()"
       @pause="pause()"
+      @force-start="forceStart()"
       @recheck="recheck()"
       @reannounce="reannounce()"
       @remove="requestRemove()"
@@ -561,6 +1017,7 @@ const summary = computed(() => ({
           @toggle-select="toggleSelect"
           @select-all="selectAll"
           @sort="(k: SortKey) => onSort(k)"
+          @context-menu="openContextMenu"
         />
       </MacCard>
 
@@ -575,12 +1032,85 @@ const summary = computed(() => ({
           @open="openDetail"
           @toggle-select="toggleSelect"
           @enter-selection="enterSelectionFromCard"
+          @context-menu="(pt) => openContextMenuFor(torrent.hash, pt)"
         />
       </div>
     </section>
 
+    <!-- ===== Context menu ===== -->
+    <MacContextMenu
+      :open="menuOpen"
+      :x="menuX"
+      :y="menuY"
+      :items="menuItems"
+      @select="onMenuSelect"
+      @close="closeContextMenu"
+    />
+
     <!-- ===== Modals ===== -->
     <AddTorrentModal v-model:open="addModalOpen" @added="session.refresh()" />
+
+    <MacPromptDialog
+      v-model:open="renamePromptOpen"
+      :title="t('action.rename')"
+      :label="t('torrent.name')"
+      :initial="renameInitial"
+      @confirm="onRenameConfirm"
+    />
+
+    <MacPromptDialog
+      v-model:open="locationPromptOpen"
+      :title="t('action.setLocation')"
+      :label="t('menu.savePath')"
+      :placeholder="t('menu.pathPlaceholder')"
+      :initial="menuTargets[0]?.save_path ?? ''"
+      @confirm="onLocationConfirm"
+    />
+
+    <MacPromptDialog
+      v-model:open="dlLimitPromptOpen"
+      :title="t('menu.downloadLimit')"
+      :label="t('torrent.downloaded')"
+      placeholder="0 = 无限制，或 500 KiB / 2 MiB"
+      unit="B/s"
+      :hint="t('menu.limitHint')"
+      @confirm="onDownloadLimitConfirm"
+    />
+
+    <MacPromptDialog
+      v-model:open="upLimitPromptOpen"
+      :title="t('menu.uploadLimit')"
+      :label="t('torrent.uploaded')"
+      placeholder="0 = 无限制，或 500 KiB / 2 MiB"
+      unit="B/s"
+      :hint="t('menu.limitHint')"
+      @confirm="onUploadLimitConfirm"
+    />
+
+    <MacPromptDialog
+      v-model:open="ratioPromptOpen"
+      :title="t('menu.shareRatio')"
+      :label="t('torrent.ratio')"
+      placeholder="1.0"
+      :hint="t('menu.ratioHint')"
+      @confirm="onRatioConfirm"
+    />
+
+    <MacPromptDialog
+      v-model:open="categoryPromptOpen"
+      :title="t('menu.newCategory')"
+      :label="t('torrent.category')"
+      :placeholder="t('menu.categoryPlaceholder')"
+      @confirm="onCategoryConfirm"
+    />
+
+    <MacPromptDialog
+      v-model:open="tagPromptOpen"
+      :title="t('menu.addTags')"
+      :label="t('torrent.tags')"
+      :placeholder="t('menu.tagPlaceholder')"
+      @confirm="onTagConfirm"
+    />
 
     <ConfirmDialog
       v-model:open="confirmState.open"

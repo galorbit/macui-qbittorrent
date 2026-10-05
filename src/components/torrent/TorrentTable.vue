@@ -48,6 +48,8 @@ const emit = defineEmits<{
   (e: 'toggle-select', hash: string, event: MouseEvent): void
   (e: 'select-all'): void
   (e: 'sort', key: SortKey): void
+  /** Right-click on a row, for the context menu. */
+  (e: 'context-menu', payload: { hash: string; x: number; y: number }): void
 }>()
 
 const { t } = useI18n()
@@ -224,6 +226,9 @@ function ariaSort(key: SortKey): 'ascending' | 'descending' | 'none' {
         :style="{ gridTemplateColumns: gridTemplate }"
         @click="emit('open', torrent.hash)"
         @keydown.enter.prevent="emit('open', torrent.hash)"
+        @contextmenu.prevent="
+          emit('context-menu', { hash: torrent.hash, x: $event.clientX, y: $event.clientY })
+        "
       >
 <div class="ttable__cell ttable__cell--check" role="cell" @click.stop>
           <label class="ttable__checkbox">

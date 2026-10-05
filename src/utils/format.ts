@@ -138,18 +138,48 @@ export function ordinal(n: number): string {
 
 export type StateTone = 'download' | 'upload' | 'paused' | 'error' | 'stalled' | 'queued' | 'checking'
 
-/** Map an API state onto a visual tone, which selects a colour token. */
+/**
+ * States that mean "not running", across BOTH naming generations.
+ *
+ * qBittorrent renamed this state in 5.0: `pausedDL` / `pausedUP` became
+ * `stoppedDL` / `stoppedUP`, and `torrentStateToString()` in
+ * `src/webui/api/serialize/serialize_torrent.cpp` has NO `paused*` case on
+ * 5.x — it emits `stopped*` only. Both names are accepted here because this
+ * theme is installed on 4.x and 5.x alike.
+ *
+ * Getting this wrong is not cosmetic: the filter chip labelled "stopped"
+ * matched nothing, stopped torrents were counted in no category at all, and the
+ * detail page offered "Stop" for a torrent that was already stopped. The test
+ * fixtures had the same blind spot (they only ever used `paused*`), which is why
+ * a fully green suite did not catch it.
+ */
+const STOPPED_STATES = ['pausedDL', 'pausedUP', 'stoppedDL', 'stoppedUP']
+
+/** True when the torrent is stopped/paused, in either naming generation. */
+export function isStopped(state: string | undefined): boolean {
+  return STOPPED_STATES.includes(String(state))
+}
+
+/**
+ * Map an API state onto a visual tone, which selects a colour token.
+ *
+ * Unknown states fall through to 'paused' deliberately — an unrecognised state
+ * is rendered neutrally rather than as an alarm.
+ */
 export function stateTone(state: TorrentState | string | undefined): StateTone {
   switch (state) {
     case 'downloading':
     case 'forcedDL':
     case 'metaDL':
+    case 'forcedMetaDL':
       return 'download'
     case 'uploading':
     case 'forcedUP':
       return 'upload'
     case 'pausedDL':
     case 'pausedUP':
+    case 'stoppedDL':
+    case 'stoppedUP':
       return 'paused'
     case 'error':
     case 'missingFiles':

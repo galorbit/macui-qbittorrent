@@ -20,6 +20,7 @@ defineProps<{ count: number }>()
 const emit = defineEmits<{
   (e: 'resume'): void
   (e: 'pause'): void
+  (e: 'force-start'): void
   (e: 'recheck'): void
   (e: 'reannounce'): void
   (e: 'remove'): void
@@ -57,6 +58,11 @@ function onCategoryChange(value: string): void {
       </MacButton>
       <MacButton size="sm" variant="secondary" @click="emit('pause')">
         {{ t('action.pause') }}
+      </MacButton>
+      <!-- Force Start, as the official WebUI offers it. Distinct from Resume:
+           a forced torrent ignores the queue and the ratio/seed limits. -->
+      <MacButton size="sm" variant="secondary" @click="emit('force-start')">
+        {{ t('action.forceStart') }}
       </MacButton>
       <MacButton size="sm" variant="secondary" @click="emit('recheck')">
         {{ t('action.recheck') }}

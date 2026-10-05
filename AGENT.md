@@ -338,8 +338,8 @@ computed 在渲染之外被读取(测试、watcher、devtools),会沿着
 │   └── snapshot-writable-keys.mjs # 快照服务端可写键
 └── src/
     ├── api/            # WebAPI v2 封装
-    ├── components/     # base/(通用组件) torrent/(业务组件)
-    ├── composables/    # useBreakpoint、useTheme、useTorrentFilter、useToast
+    ├── components/     # base/(通用组件) torrent/(业务组件) rss/(递归树节点)
+    ├── composables/    # useBreakpoint、useTheme、useTorrentFilter、useTorrentContextMenu、useToast
     ├── config/         # settings-schema.ts(150 项 / 8 组)、settings-sections.ts、writable-keys.json
     ├── i18n/           # locales/{en,zh-CN,settings}.ts
     ├── layouts/        # AppLayout.vue(导航壳)

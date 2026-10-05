@@ -43,6 +43,8 @@ const emit = defineEmits<{
   (e: 'open', hash: string): void
   (e: 'toggle-select', hash: string): void
   (e: 'enter-selection', hash: string): void
+  /** Long-press with selection mode already on, for the actions menu. */
+  (e: 'context-menu', point: { x: number; y: number }): void
 }>()
 
 const { t } = useI18n()
@@ -65,6 +67,8 @@ const metaLine = computed(() => {
 const LONG_PRESS_MS = 500
 let pressTimer: ReturnType<typeof setTimeout> | null = null
 const pressing = ref(false)
+/** Where the finger went down, so the menu can open near it. */
+let pressOrigin = { x: 0, y: 0 }
 
 function clearPress(): void {
   if (pressTimer !== null) {
@@ -75,15 +79,21 @@ function clearPress(): void {
 }
 
 function onPointerDown(event: PointerEvent): void {
-  // Mouse users have the always-visible checkbox; this is a touch affordance.
+  // Mouse users get a real right-click; this is the touch equivalent.
   if (event.pointerType === 'mouse') return
   clearPress()
   pressing.value = true
+  pressOrigin = { x: event.clientX, y: event.clientY }
   pressTimer = setTimeout(() => {
     pressTimer = null
     pressing.value = false
-    // Already selecting? Then the long-press just toggles this card.
-    if (props.selectionMode) emit('toggle-select', props.torrent.hash)
+    /*
+     * Second long-press opens the actions menu; the first one enters selection
+     * mode. Both are needed: entering selection mode is the only way to reach
+     * bulk actions on a phone, and the menu is the only way to reach the
+     * single-torrent actions that the desktop table offers on right-click.
+     */
+    if (props.selectionMode) emit('context-menu', pressOrigin)
     else emit('enter-selection', props.torrent.hash)
   }, LONG_PRESS_MS)
 }
