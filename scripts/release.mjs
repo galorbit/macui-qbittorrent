@@ -33,14 +33,24 @@ import { execFileSync, spawnSync } from 'node:child_process'
 const DRY = process.argv.includes('--dry-run')
 const SKIP_TESTS = process.argv.includes('--skip-tests')
 
-/** Run a command inheriting stdio; throw on a non-zero exit. */
+/**
+ * Run a command inheriting stdio; throw on a non-zero exit.
+ *
+ * `shell: true` is required on Windows: `pnpm` is a `.cmd` shim there, and
+ * Node's execFileSync does NOT resolve shell shims — it dies with
+ * `spawnSync pnpm ENOENT` even though pnpm works fine in a terminal. `git` is a
+ * real executable, but going through the shell for both keeps one code path.
+ */
 function run(command, args) {
-  execFileSync(command, args, { stdio: 'inherit' })
+  execFileSync(command, args, { stdio: 'inherit', shell: process.platform === 'win32' })
 }
 
 /** Run a command and capture trimmed stdout. */
 function capture(command, args) {
-  return execFileSync(command, args, { encoding: 'utf8' }).trim()
+  return execFileSync(command, args, {
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+  }).trim()
 }
 
 function git(...args) {
