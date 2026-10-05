@@ -426,15 +426,31 @@ fixed resolves against an ancestor: ctxmenu glass-panel
 1. **外部点击判定要认这个弹层。** 它已经在菜单根节点之外,`root.contains()`
    会判成"点击了外部",于是在菜单项自己的 handler 跑之前就把菜单关了。
    要额外判断 `submenuEl.contains(target)`。
-2. **定位要夹到视口内,而且不能只量一次。** 首次 `nextTick` 时
-   `offsetHeight` 可能还是 0,`if (h > 0)` 这种守卫会**静默跳过夹取**,
-   导致长菜单底部的二级菜单整块跑到屏幕外(实测 top=545 而视口只有 460)。
-   改成无条件夹取 + 绘制后再量一次。
+2. **`ref` 写在 `v-for` 里拿到的是数组,不是元素。** 二级菜单的
+   `ref="submenuEl"` 位于 `v-for="item in items"` 内部,Vue 会给它**数组**。
+   当成元素读时 `offsetHeight` 是 `undefined`,夹取被静默跳过 ——
+   实测 900px 视口里 112px 的二级菜单落在 `top: 827`,下沿超出 39px。
+   要写一个 `submenuNode()` 把两种形状归一。
+
+3. **高度未知时不要夹取,也不要假设它占满视口。** 这两个极端各出过一个 bug:
+
+   - `if (h > 0)` 守卫 → 静默跳过夹取 → 底部二级菜单跑到屏幕外;
+   - 把 `0` 当成"和视口一样高" → 夹取算出 `vh - vh - margin` →
+     **每一个二级菜单都被钉在屏幕最顶端**,离hover的行很远。用户直接反馈
+     "二级选项显示在最上面,不符合操作逻辑"。
+
+   正确做法:`h` 未知时**按行定位、完全不夹**;绘制后再量一次,
+   真的溢出才上移,**且只上移所需的最小距离**。
 
 **通用教训:`transform` / `filter` / `backdrop-filter` / `perspective` /
 `contain` / `will-change` 都会创建包含块。** 本主题大量使用毛玻璃,所以
 "用 `position: fixed` 逃离裁剪"这个常见手法在这里**默认就是坏的**,
 必须 Teleport。
+
+**测试注意:jsdom 不做布局**,`offsetHeight` 全是 0、`getBoundingClientRect`
+全是 0。所以定位逻辑的测试必须**自己桩出几何**(改 `window.innerHeight`、
+覆写这两者),否则断言是空的 —— 我第一版守卫测试就是这样:
+两个 bug 注回去,测试**照样全绿**。桩了几何之后注回 bug 才会红。
 
 ---
 
@@ -617,7 +633,7 @@ pnpm typecheck && pnpm test
 ## 六、测试
 
 ```bash
-pnpm test          # 250 项单元测试
+pnpm test          # 254 项单元测试
 pnpm typecheck     # 必须 0 错误
 pnpm verify:entry  # 22 项登录流程检查(jsdom 跑构建产物)
 pnpm verify:dist   # 服务端路径解析规则
@@ -644,7 +660,7 @@ pnpm verify:dist   # 服务端路径解析规则
 
 **以后加依赖 `dist/` 的测试,记得也要给嵌套块加守卫。**
 `pnpm test` 在有无构建时都应可运行:
-`250 passed`,或 `237 passed / 13 skipped`。
+`254 passed`,或 `241 passed / 13 skipped`。
 
 ### 视觉改动要真的渲染出来看
 

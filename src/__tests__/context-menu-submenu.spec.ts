@@ -47,6 +47,14 @@ const ITEMS: ContextMenuItem[] = [
       { id: 'copy:hash', label: '哈希值' },
     ],
   },
+  {
+    id: 'queue',
+    label: '队列',
+    children: [
+      { id: 'queue:top', label: '移至顶部' },
+      { id: 'queue:up', label: '上移' },
+    ],
+  },
   { id: 'export', label: '导出 .torrent' },
 ]
 
@@ -111,6 +119,181 @@ describe('MacContextMenu — submenu rendering', () => {
 
     wrapper.unmount()
   })
+
+  /**
+ * Give jsdom the geometry the placement maths depends on.
+ *
+ * jsdom performs no layout, so every `offsetHeight` is 0 and every
+ * `getBoundingClientRect()` is all zeros — which makes the placement arithmetic
+ * untestable and, worse, lets a broken clamp pass by coincidence. These stubs
+ * supply a realistic row position and popup size so the real code path is
+ * exercised.
+ *
+ * `rowTop` is where the hovered row sits; placing a popup taller than the
+ * remaining space is what must trigger a lift.
+ */
+function stubGeometry(options: { rowTop: number; popupHeight: number; viewportHeight: number }) {
+  const { rowTop, popupHeight, viewportHeight } = options
+
+  // Viewport size drives `window.innerHeight` inside the component.
+  Object.defineProperty(window, 'innerHeight', {
+    value: viewportHeight,
+    configurable: true,
+    writable: true,
+  })
+
+  // The parent row's rect.
+  const rowProto = Element.prototype
+  const originalRect = rowProto.getBoundingClientRect
+  rowProto.getBoundingClientRect = function stub(this: Element) {
+    if (this.classList?.contains('ctxmenu__row')) {
+      return {
+        top: rowTop,
+        bottom: rowTop + 25,
+        left: 300,
+        right: 500,
+        width: 200,
+        height: 25,
+        x: 300,
+        y: rowTop,
+        toJSON: () => ({}),
+      } as DOMRect
+    }
+    return originalRect.call(this)
+  }
+
+  // The popup's measured size.
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList?.contains('ctxmenu__submenu') ? popupHeight : 0
+    },
+  })
+  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList?.contains('ctxmenu__submenu') ? 176 : 0
+    },
+  })
+
+  return () => {
+    rowProto.getBoundingClientRect = originalRect
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>).offsetHeight
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>).offsetWidth
+  }
+}
+
+describe('MacContextMenu — submenu placement', () => {
+  it('anchors the popup beside the hovered row, not at the top of the screen', async () => {
+    /*
+     * An earlier fix for the clipping bug treated a not-yet-measured height as
+     * "the popup fills the viewport", which pinned EVERY submenu to the top
+     * edge — far from the highlighted item and plainly disorienting.
+     *
+     * With room to spare, the popup must sit at the row (rowTop - 4) and the
+     * viewport clamp must not move it at all.
+     */
+    const restore = stubGeometry({ rowTop: 300, popupHeight: 120, viewportHeight: 900 })
+    try {
+      const wrapper = mountMenu()
+      await hoverParent('复制')
+
+      const sub = document.querySelector('.ctxmenu__submenu') as HTMLElement
+      expect(sub, 'no submenu').toBeTruthy()
+      expect(
+        Number.parseFloat(sub.style.top),
+        'a popup with room below it must sit beside its row, not be lifted',
+      ).toBe(296) // rowTop - 4
+
+      wrapper.unmount()
+    } finally {
+      restore()
+    }
+  })
+
+  it('lifts the popup only as far as needed when it would overflow', async () => {
+    /*
+     * The opposite failure: a submenu near the bottom of the menu hung off the
+     * screen entirely because the clamp silently did not run (the ref had been
+     * read as an array, so `offsetHeight` was undefined).
+     *
+     * Row at 850, popup 120 tall, viewport 900 -> it must be lifted to
+     * 900 - 120 - 8 = 772, and never beyond the top margin.
+     */
+    const restore = stubGeometry({ rowTop: 850, popupHeight: 120, viewportHeight: 900 })
+    try {
+      const wrapper = mountMenu()
+      await hoverParent('复制')
+
+      const sub = document.querySelector('.ctxmenu__submenu') as HTMLElement
+      const top = Number.parseFloat(sub.style.top)
+      expect(top, `expected a lift to 772, got ${sub.style.top}`).toBe(772)
+      expect(top + 120, 'the popup must fit above the bottom edge').toBeLessThanOrEqual(900)
+
+      wrapper.unmount()
+    } finally {
+      restore()
+    }
+  })
+
+  it('reads the submenu ref as an element, not as an array', async () => {
+    /*
+     * `ref="submenuEl"` is declared inside `v-for="item in items"`, and Vue
+     * assigns a template ref inside a v-for an ARRAY of elements. Reading it as
+     * a plain element made `offsetHeight` undefined, so the clamp was skipped —
+     * while every other test still passed, since the popup was present and
+     * populated.
+     *
+     * The observable consequence is a missing lift, exactly as asserted above;
+     * this test pins the specific case of a popup that would leave the viewport.
+     */
+    const restore = stubGeometry({ rowTop: 880, popupHeight: 200, viewportHeight: 900 })
+    try {
+      const wrapper = mountMenu()
+      await hoverParent('队列')
+
+      const sub = document.querySelector('.ctxmenu__submenu') as HTMLElement
+      const top = Number.parseFloat(sub.style.top)
+      // 900 - 200 - 8 = 692
+      expect(top, `expected a lift to 692, got ${sub.style.top}`).toBe(692)
+
+      wrapper.unmount()
+    } finally {
+      restore()
+    }
+  })
+
+  it('places the popup at its row when the height cannot be measured yet', async () => {
+    /*
+     * THE REGRESSION THE USER REPORTED: every submenu appeared at the TOP of the
+     * screen instead of beside the hovered item.
+     *
+     * On the first pass the popup has been inserted but not laid out, so
+     * `offsetHeight` reads 0. An attempt at fixing an overflow bug treated that
+     * 0 as "the popup is as tall as the viewport", so the clamp computed
+     * `vh - vh - margin` and pinned it to the top margin — for EVERY popup,
+     * regardless of which item was hovered.
+     *
+     * With no measurable height the placement must simply use the row.
+     */
+    const restore = stubGeometry({ rowTop: 300, popupHeight: 0, viewportHeight: 900 })
+    try {
+      const wrapper = mountMenu()
+      await hoverParent('复制')
+
+      const sub = document.querySelector('.ctxmenu__submenu') as HTMLElement
+      const top = Number.parseFloat(sub.style.top)
+      expect(
+        top,
+        `with an unknown height the popup must sit beside its row (296), got ${sub.style.top}`,
+      ).toBe(296)
+
+      wrapper.unmount()
+    } finally {
+      restore()
+    }
+  })
+})
 
   it('emits the child id when a submenu entry is clicked', async () => {
     const wrapper = mountMenu()

@@ -82,8 +82,23 @@ const subPos = ref({ x: 0, y: 0 })
 /** Cap on the open submenu's height, so it scrolls rather than overflowing. */
 const subMaxHeight = ref(0)
 
-/** The single open submenu element (at most one exists at a time). */
-const submenuEl = ref<HTMLElement | null>(null)
+/**
+ * The single open submenu element (at most one exists at a time).
+ *
+ * NOTE: this ref sits inside `v-for="item in items"`, and Vue assigns a template
+ * ref declared inside a `v-for` an ARRAY rather than an element. Reading it as a
+ * plain element therefore gave an array, `offsetHeight` came back `undefined`,
+ * and the viewport clamp silently did nothing — which is why a submenu near the
+ * bottom of the menu hung off the screen. `submenuNode` normalises both shapes.
+ */
+const submenuEl = ref<HTMLElement | HTMLElement[] | null>(null)
+
+/** The open submenu as a plain element, whichever shape Vue assigned. */
+function submenuNode(): HTMLElement | null {
+  const v = submenuEl.value
+  if (!v) return null
+  return Array.isArray(v) ? (v[0] ?? null) : v
+}
 
 /** The row element whose `id` is currently open, for measuring its position. */
 const parentRowEl = ref<HTMLElement | null>(null)
@@ -130,30 +145,27 @@ function placeSubmenu(parentRow: HTMLElement | null, el: HTMLElement | null): vo
   if (x + w + margin > vw) x = Math.max(margin, row.left - w - 2)
 
   /*
-   * Vertical placement.
+   * Vertical placement: sit beside the parent row, and lift ONLY as far as
+   * needed to keep the popup on screen.
    *
-   * Start aligned with the parent row, then pull the popup up until it fits.
+   * `h` can legitimately be 0 on the first pass, before layout. What must NOT
+   * happen is treating that as "the popup fills the viewport": doing so pinned
+   * every submenu to the very top edge, far from the hovered item, which reads
+   * as broken even though nothing overflows. An earlier attempt at the opposite
+   * extreme — skipping the clamp when the height was unknown — let a submenu at
+   * the bottom of the menu hang off the screen instead.
    *
-   * The height is NOT trusted to be correct on the first pass: the element has
-   * been inserted but may not be laid out yet, so `offsetHeight` can read 0.
-   * An earlier version skipped the clamp when the height was 0, which let any
-   * submenu opened near the bottom of a scrolled menu hang entirely off-screen
-   * (measured: top 545 in a 460px viewport, for a 112px submenu).
-   *
-   * Clamping unconditionally makes the result correct on every pass, and a
-   * later pass with the true height simply refines it.
+   * So: with no measurable height, place it at the row and clamp nothing. The
+   * post-paint pass has the real height and lifts it if it actually overflows.
    */
-  const usable = Math.max(0, vh - margin * 2)
-  const effectiveH = h > 0 ? h : usable
   let y = row.top - 4
-  if (y + effectiveH + margin > vh) y = vh - effectiveH - margin
-  if (y + h + margin > vh) y = vh - h - margin
+  if (h > 0 && y + h + margin > vh) y = vh - h - margin
   // Never above the viewport top, whatever the arithmetic says.
   y = Math.max(margin, y)
 
-  // A submenu taller than the viewport must scroll inside itself rather than
-  // run off the screen; cap it to the space actually available below `y`.
-  subMaxHeight.value = Math.max(120, vh - y - margin)
+  // A submenu taller than the space below it scrolls inside itself rather than
+  // running off the screen.
+  subMaxHeight.value = h > 0 ? Math.max(120, vh - y - margin) : 0
   subPos.value = { x, y }
 }
 
@@ -167,9 +179,9 @@ function placeSubmenu(parentRow: HTMLElement | null, el: HTMLElement | null): vo
  */
 async function positionOpenSubmenu(): Promise<void> {
   await nextTick()
-  placeSubmenu(parentRowEl.value, submenuEl.value)
+  placeSubmenu(parentRowEl.value, submenuNode())
   // After the browser has painted, measure again in case the height settled.
-  requestAnimationFrame(() => placeSubmenu(parentRowEl.value, submenuEl.value))
+  requestAnimationFrame(() => placeSubmenu(parentRowEl.value, submenuNode()))
 }
 
 /** Leaf items only — separators and submenu parents are not directly actionable. */
@@ -243,7 +255,7 @@ function onDocumentPointerDown(event: PointerEvent): void {
    * this second check, pressing a submenu item would count as an outside click
    * and close the menu before the item's own handler ran.
    */
-  if (submenuEl.value?.contains(target)) return
+  if (submenuNode()?.contains(target)) return
   emit('close')
 }
 

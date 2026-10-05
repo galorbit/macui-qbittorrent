@@ -24,12 +24,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (backdrop-filter=blur(22px) saturate(1.6))`.
 
   The submenu is now **teleported to `<body>`**, which removes both the clipping
-  ancestor and the containing block. It is also clamped into the viewport, with
-  its height re-measured after paint (a first-pass `offsetHeight` of 0 silently
-  skipped the clamp, leaving tall submenus entirely off-screen), and it scrolls
-  internally when taller than the space available. The outside-click handler now
-  accepts the teleported popup, so pressing a submenu entry no longer closes the
-  menu before the entry's own handler runs.
+  ancestor and the containing block. The outside-click handler also accepts the
+  teleported popup, so pressing a submenu entry no longer closes the menu before
+  the entry's own handler runs.
+
+  Two further faults in that first attempt are recorded because each produced a
+  visible bug of its own:
+
+  - **A submenu opened at the top of the screen instead of beside the hovered
+    item.** Treating a not-yet-measured height (`offsetHeight` reads 0 before
+    layout) as "the popup is as tall as the viewport" made the clamp compute
+    `vh - vh - margin`, pinning _every_ popup to the top edge. With an unknown
+    height the popup is now placed at its row and clamped not at all; the
+    post-paint pass lifts it only if it genuinely overflows.
+  - **A submenu near the bottom of the menu hung off-screen.** `ref="submenuEl"`
+    sits inside `v-for="item in items"`, and Vue assigns a template ref declared
+    inside a `v-for` an **array** rather than an element. Reading it as a scalar
+    made `offsetHeight` `undefined`, so the clamp silently did nothing — measured
+    at `top: 827` for a 112px popup in a 900px viewport, 39px off-screen. The ref
+    is now normalised to a single element.
+
+  A popup taller than the space below it scrolls inside itself rather than
+  running off the screen.
 - **qBittorrent 5.x "stopped" torrents were not recognised anywhere.** 5.0
   renamed the state: `pausedDL`/`pausedUP` became `stoppedDL`/`stoppedUP`, and
   `torrentStateToString()` in `serialize_torrent.cpp` has no `paused*` case at
