@@ -82,10 +82,10 @@ fi
 
 # Local commit only; pushing stays a deliberate act.
 if node scripts/publish-dist-branch.mjs; then
-  echo "[post-commit] dist branch updated locally."
-  echo "[post-commit] Publish with: git push origin dist"
+  echo "[post-commit] dist branch updated locally (not pushed)."
+  echo "[post-commit] Publish source + dist to every remote with: pnpm release"
 else
-  echo "[post-commit] dist publish FAILED — run: pnpm publish:dist"
+  echo "[post-commit] dist publish FAILED — run: pnpm build && pnpm publish:dist"
 fi
 
 exit 0
