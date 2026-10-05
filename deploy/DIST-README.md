@@ -18,13 +18,21 @@ version.txt build provenance
 ## Deployment
 
 Point qBittorrent's **Use alternative WebUI** setting at the folder that
-CONTAINS `public/` and `private/` — not at `private/` itself, and not at this
-repository root.
+CONTAINS `public/` and `private/` — not at `private/` itself, and not at a parent
+folder above them.
+
+- **Downloaded the branch as a ZIP?** Extract it, and use the folder you
+  extracted — that folder already holds `public/` and `private/` side by side.
+- **Cloned the branch?** Use the clone directory, e.g. `/path/to/macos-theme`.
+
+Either way, the path you configure must be the one whose *immediate* children are
+`public/` and `private/`. If your path ends in `private`, or contains a level
+above it, the WebUI will not load.
 
 ```yaml
 # docker-compose.yml (lscr.io/linuxserver/qbittorrent)
 volumes:
-  - /path/to/this/repo:/macos-theme:ro
+  - /path/to/the-extracted-folder:/macos-theme:ro
 environment:
   - QBT_WEBUI_PORT=40110
 ```
@@ -62,7 +70,12 @@ enforces each of these, and the build fails rather than shipping a broken tree:
 - **`manifest.start_url` must not be a directory** — a directory target triggers
   "Unacceptable file type".
 
-Current output: 46 files, ~519 KiB, largest file 150 KiB.
+Current output: 58 files, ~606 KiB, largest file 165 KiB.
+
+> Run `pnpm verify:dist` on `main` for the authoritative figures. They are
+> deliberately NOT derived here automatically, so this line can go stale — it
+> has already drifted once (it read "46 files, ~519 KiB" long after the build
+> grew). Trust the command, not this sentence.
 
 ## Updating
 
