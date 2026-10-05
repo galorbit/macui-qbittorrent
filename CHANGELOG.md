@@ -46,6 +46,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   A popup taller than the space below it scrolls inside itself rather than
   running off the screen.
+- **The Queue submenu reported the wrong action, and silently did nothing for
+  torrents the server had not queued.** Two separate faults:
+
+  - All four items toasted _"Move to top"_ regardless of which was chosen,
+    because the label was hard-coded to `action.queueTop`.
+  - qBittorrent's own handlers each begin with
+    `if (const int position = torrent->queuePosition(); position >= 0)`, so a
+    stopped, finished or force-started torrent (position `-1`) is skipped — the
+    request returns 200 while changing nothing, and the UI reported success.
+
+  The correct label is now used per action, and torrents that cannot be reordered
+  are filtered out. When none of the selection can be moved, the app says so
+  instead of claiming success. Force-started torrents are excluded from the
+  request but no longer block the queued ones in the same selection.
 - **qBittorrent 5.x "stopped" torrents were not recognised anywhere.** 5.0
   renamed the state: `pausedDL`/`pausedUP` became `stoppedDL`/`stoppedUP`, and
   `torrentStateToString()` in `serialize_torrent.cpp` has no `paused*` case at
@@ -146,6 +160,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Escape clears the torrent selection.** With one or many torrents ticked —
+  mouse or touch — pressing Escape deselects them, matching the file-manager
+  behaviour the rest of the list already follows.
+
+  Precedence is deliberate: the shortcut only fires when nothing else owns the
+  key. An open context menu consumes the first Escape to close itself (and the
+  selection survives), a confirmation dialog keeps Escape for dismissing, and a
+  focused text field keeps it for reverting what was typed. A dead key that
+  silently wiped a selection the user was acting on would be worse than no
+  shortcut at all.
 - **Right-click menu on the torrent list, mirroring the stock WebUI's
   `torrentsTableMenu`.** Right-click a row on desktop, long-press a card on
   mobile. Menu items are data (`src/composables/useTorrentContextMenu.ts`), so the

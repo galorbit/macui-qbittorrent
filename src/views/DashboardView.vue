@@ -9,7 +9,7 @@
  * Both render from the same sorted/filtered collection, so switching viewport
  * size never loses the user's place in the list.
  */
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useBreakpoint } from '@/composables/useBreakpoint'
@@ -312,6 +312,58 @@ const categoryPromptOpen = ref(false)
 const tagPromptOpen = ref(false)
 
 /**
+ * Escape clears the selection — but only when nothing else wants the key.
+ *
+ * ORDERING IS THE WHOLE PROBLEM HERE. Three things react to Escape:
+ *
+ *   - `MacModal`  — listens on `document` in the CAPTURE phase and calls
+ *     `stopPropagation()`. It therefore always wins, which is correct: Escape
+ *     should dismiss a dialog, not wipe the user's selection behind it.
+ *   - `MacContextMenu` — listens on `document`, bubble phase. Escape closes the
+ *     submenu first, then the menu.
+ *   - this handler — also bubble phase, registered later.
+ *
+ * A bubble-phase listener on `document` runs after the context menu's (same
+ * target, registration order) and never sees an Escape that a modal consumed,
+ * because the modal stopped propagation in the capture phase. That gives the
+ * wanted precedence for free.
+ *
+ * The extra guards cover the prompts that are held in refs here rather than in a
+ * `MacModal`: pressing Escape in a rename field must close the prompt, not
+ * deselect the torrents being renamed.
+ */
+function anyOverlayOpen(): boolean {
+  return (
+    menuOpen.value ||
+    confirmState.value.open ||
+    renamePromptOpen.value ||
+    locationPromptOpen.value ||
+    dlLimitPromptOpen.value ||
+    upLimitPromptOpen.value ||
+    ratioPromptOpen.value ||
+    categoryPromptOpen.value ||
+    tagPromptOpen.value
+  )
+}
+
+function onGlobalKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape') return
+  // Leave the key to whatever overlay is open.
+  if (anyOverlayOpen()) return
+  // Do not steal Escape from a text field (e.g. the filter box), where it may be
+  // used to revert the typed value.
+  const el = event.target as HTMLElement | null
+  const tag = el?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable) return
+  if (selected.value.size === 0) return
+
+  clearSelection()
+}
+
+onMounted(() => document.addEventListener('keydown', onGlobalKeydown))
+onBeforeUnmount(() => document.removeEventListener('keydown', onGlobalKeydown))
+
+/**
  * Parse a rate-limit value the user typed.
  *
  * Accepts a bare number (bytes/s), or a number with a unit suffix — `500 KiB`,
@@ -490,15 +542,35 @@ async function onMenuSelect(id: string): Promise<void> {
   }
 
   if (id.startsWith('queue:')) {
-    const map: Record<string, string> = {
-      'queue:top': 'topPrio',
-      'queue:up': 'increasePrio',
-      'queue:down': 'decreasePrio',
-      'queue:bottom': 'bottomPrio',
+    /*
+     * A queue action is only meaningful for a torrent the server has actually
+     * queued. qBittorrent's own implementation guards every one of these with
+     * `if (const int position = torrent->queuePosition(); position >= 0)` —
+     * a stopped, finished or force-started torrent reports -1 and is skipped,
+     * so the request succeeds (HTTP 200) while changing nothing.
+     *
+     * Reporting that as success is what made this feel broken: the menu said
+     * the move had happened when it had not. Warn instead, and name the action
+     * that was actually chosen — this used to toast "移至顶部" for all four.
+     */
+    const actions: Record<string, { priority: string; label: string }> = {
+      'queue:top': { priority: 'topPrio', label: t('action.queueTop') },
+      'queue:up': { priority: 'increasePrio', label: t('action.queueUp') },
+      'queue:down': { priority: 'decreasePrio', label: t('action.queueDown') },
+      'queue:bottom': { priority: 'bottomPrio', label: t('action.queueBottom') },
     }
-    const priority = map[id]
-    if (!priority) return
-    await menuAction(t('action.queueTop'), () => api.setTorrentPriority(hashes, priority))
+    const action = actions[id]
+    if (!action) return
+
+    // Queue position is reported as `priority`; -1 means "not in the queue".
+    // Force-started torrents bypass the queue entirely, so they are excluded too.
+    const queued = targets.filter((x) => (x.priority ?? -1) >= 0 && x.force_start !== true)
+    closeContextMenu()
+    if (!queued.length) {
+      toast.warning(t('menu.queueNotQueued'))
+      return
+    }
+    await withAction(action.label, () => api.setTorrentPriority(queued.map((x) => x.hash), action.priority))
     return
   }
 

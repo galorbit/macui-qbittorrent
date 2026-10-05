@@ -280,6 +280,8 @@ export default {
   menu: {
     start: 'Start',
     forceStart: 'Force start',
+    queueNotQueued:
+      'The selected torrents are not in the queue (stopped, finished or force-started), so their queue order cannot be changed',
     renameFiles: 'Rename files…',
     newCategory: 'New category…',
     addTags: 'Add tags…',

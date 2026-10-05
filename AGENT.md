@@ -452,6 +452,58 @@ fixed resolves against an ancestor: ctxmenu glass-panel
 覆写这两者),否则断言是空的 —— 我第一版守卫测试就是这样:
 两个 bug 注回去,测试**照样全绿**。桩了几何之后注回 bug 才会红。
 
+### 21. 队列接口只对"已入队"的种子生效,返回 200 但什么都没做(踩过)
+
+四个队列接口(`torrents/topPrio` / `bottomPrio` / `increasePrio` /
+`decreasePrio`)在服务端**每一个都带同一个守卫**:
+
+```cpp
+if (const int position = torrent->queuePosition(); position >= 0)
+    torrentQueue.emplace(position, torrent);
+```
+
+`queuePosition()` 直接来自 libtorrent 的 `queue_position`。**已停止、
+已完成、以及被"强制开始"的种子该值是 -1**,于是循环体一个都不进 ——
+**HTTP 仍然返回 200**,前端 `await` 正常返回,看起来"成功但没反应"。
+
+`torrents/info` 返回的 `priority` 字段就是这个位置,文档明确写着
+"-1 if queuing is disabled"。所以:
+
+- **判断"能不能调队列"看 `priority >= 0`**,不要看 `state`;
+- `force_start === true` 的种子要排除(它绕过队列);
+- 混合选择时**只发能动的那些**,不要把整批一起拒掉;
+- 一个都动不了时要**明确告诉用户**,不能报成功。
+
+**通用教训:HTTP 200 只代表"请求被接受",不代表"产生了效果"。**
+凡是服务端可能静默跳过的操作,前端都要先判断前置条件,或者给出可见的
+"没有生效"反馈 —— 否则用户只会看到"点了没反应",然后来报 bug。
+
+相关:`torrents/info` 的 `priority` / `force_start` 字段 key 见
+`serialize_torrent.h`。
+
+### 22. 全局键盘快捷键要让位于弹层(踩过)
+
+实现"ESC 取消选中"时,先后次序是**唯一的难点**。本项目里三处都监听 Escape:
+
+| 位置 | 注册方式 | 行为 |
+|---|---|---|
+| `MacModal` | `document`,**捕获阶段** + `stopPropagation()` | 关闭对话框 |
+| `MacContextMenu` | `document`,冒泡阶段 | 先关二级菜单,再关菜单 |
+| 取消选中 | `document`,冒泡阶段(后注册) | 清空选中 |
+
+捕获阶段先于冒泡阶段,所以**弹层总是先拿到 Escape**,取消选中的处理器
+自然排在最后 —— 不需要额外的优先级机制。**如果你把取消选中也注册成捕获
+阶段,就会反过来抢在对话框前面清掉选中**,那是个很难发现的 bug。
+
+另外必须显式放行两种情况(它们不是 `MacModal`):输入框内的 Escape
+(用于还原输入)、以及本视图用 ref 管理的那些 prompt。
+
+**测试注意:每个 `it` 都要卸载组件。** `DashboardView` 会在 `document`
+上挂 keydown 监听;有 20 个测试挂载后不卸载,于是**每个测试都留下一个
+监听器**。结果是新增的 Escape 测试**单独跑全绿、整个文件跑就红**。
+修法是在 `mountDashboard` 里统一登记,`afterEach` 全部卸载 ——
+比在 20 个测试里逐个记得写 `wrapper.unmount()` 可靠得多。
+
 ---
 
 ## 四、目录结构
@@ -633,7 +685,7 @@ pnpm typecheck && pnpm test
 ## 六、测试
 
 ```bash
-pnpm test          # 254 项单元测试
+pnpm test          # 263 项单元测试
 pnpm typecheck     # 必须 0 错误
 pnpm verify:entry  # 22 项登录流程检查(jsdom 跑构建产物)
 pnpm verify:dist   # 服务端路径解析规则
@@ -660,7 +712,7 @@ pnpm verify:dist   # 服务端路径解析规则
 
 **以后加依赖 `dist/` 的测试,记得也要给嵌套块加守卫。**
 `pnpm test` 在有无构建时都应可运行:
-`254 passed`,或 `241 passed / 13 skipped`。
+`263 passed`,或 `250 passed / 13 skipped`。
 
 ### 视觉改动要真的渲染出来看
 

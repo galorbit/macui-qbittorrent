@@ -277,6 +277,7 @@ export default {
   menu: {
     start: '开始',
     forceStart: '强制开始',
+    queueNotQueued: '所选的种子不在队列中（已停止、已完成或强制开始），队列顺序无法调整',
     renameFiles: '重命名文件…',
     newCategory: '新建分类…',
     addTags: '添加标签…',

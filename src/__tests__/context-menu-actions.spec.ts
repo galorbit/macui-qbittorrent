@@ -17,7 +17,7 @@
  * Export downloads a file, Remove opens a confirmation first). Those are asserted
  * against their actual effect instead of being skipped, so no item goes unchecked.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
@@ -81,6 +81,7 @@ vi.mock('@/api/transfer', () => ({
 import DashboardView from '@/views/DashboardView.vue'
 import { i18n } from '@/i18n'
 import { useSessionStore } from '@/stores/session'
+import { useToast } from '@/composables/useToast'
 import type { Torrent } from '@/types/api'
 
 function makeTorrent(over: Partial<Torrent> = {}): Torrent {
@@ -125,6 +126,23 @@ function makeTorrent(over: Partial<Torrent> = {}): Torrent {
   } as Torrent
 }
 
+/**
+ * Every wrapper mounted during a test, torn down afterwards.
+ *
+ * WHY THIS IS NOT OPTIONAL
+ * ------------------------
+ * `DashboardView` registers a `document` keydown listener for Escape. Without
+ * unmounting, each test leaked a live listener belonging to a component whose
+ * state no longer means anything — and the Escape tests then failed depending on
+ * how many earlier tests had run. That is the worst kind of failure: it passes
+ * in isolation and fails in the suite.
+ *
+ * Unmounting in one place is also far more reliable than remembering
+ * `wrapper.unmount()` in twenty individual tests, which is what this file did
+ * before (20 of 30 tests leaked).
+ */
+const mountedWrappers: Array<{ unmount: () => void }> = []
+
 /** Mount the dashboard with one or more torrents already in the store. */
 async function mountDashboard(torrents: Torrent[]) {
   const pinia = createPinia()
@@ -147,6 +165,7 @@ async function mountDashboard(torrents: Torrent[]) {
     global: { plugins: [pinia, i18n] },
     attachTo: document.body,
   })
+  mountedWrappers.push(wrapper as unknown as { unmount: () => void })
   await flushPromises()
   await nextTick()
   return { wrapper, session }
@@ -197,6 +216,13 @@ function menuIsOpen(): boolean {
 beforeEach(() => {
   vi.clearAllMocks()
   document.body.innerHTML = ''
+  // The toast store is module-level, so it survives between tests.
+  useToast().toasts.value = []
+})
+
+afterEach(() => {
+  // Unmount everything this test mounted, so no `document` listener outlives it.
+  while (mountedWrappers.length) mountedWrappers.pop()?.unmount()
 })
 
 describe('context menu acts on the torrents API', () => {
@@ -299,11 +325,93 @@ describe('context menu acts on the torrents API', () => {
     expect(tags.sort()).toEqual(['archive', 'iso'])
   })
 
-  it('Queue submenu calls setTorrentPriority', async () => {
-    const { wrapper } = await mountDashboard([makeTorrent()])
+  it('Queue submenu maps each item to its own endpoint', async () => {
+    /*
+     * Only "Move to top" was covered before, which let a real bug through: all
+     * four items reported the toast for 移至顶部 regardless of which was chosen.
+     * Each endpoint is asserted here so a wrong mapping cannot hide behind the
+     * one that happened to be tested.
+     */
+    const cases: Array<[string, string]> = [
+      [i18n.global.t('action.queueTop'), 'topPrio'],
+      [i18n.global.t('action.queueUp'), 'increasePrio'],
+      [i18n.global.t('action.queueDown'), 'decreasePrio'],
+      [i18n.global.t('action.queueBottom'), 'bottomPrio'],
+    ]
+
+    for (const [label, endpoint] of cases) {
+      api.setTorrentPriority.mockClear()
+      const { wrapper } = await mountDashboard([makeTorrent()])
+      await openMenu(wrapper)
+      expect(await clickSubmenu(i18n.global.t('menu.queue'), label), `could not click ${label}`).toBe(true)
+      expect(api.setTorrentPriority, `${label} should call ${endpoint}`).toHaveBeenCalledWith(
+        ['a'.repeat(40)],
+        endpoint,
+      )
+      wrapper.unmount()
+    }
+  })
+
+  it('Queue actions do NOT no-op silently when the torrent is not queued', async () => {
+    /*
+     * qBittorrent's own handlers all begin with
+     * `if (const int position = torrent->queuePosition(); position >= 0)` —
+     * a stopped / finished / force-started torrent reports -1 and is skipped, so
+     * the request returns 200 while changing nothing. The menu used to report
+     * that as success, which is what made the feature look broken.
+     *
+     * `priority: -1` is exactly how the server signals "not in the queue"
+     * (the API docs say "-1 if queuing is disabled"), so the app must not claim
+     * to have moved it.
+     */
+    const { wrapper } = await mountDashboard([makeTorrent({ priority: -1 })])
+
     await openMenu(wrapper)
     expect(await clickSubmenu(i18n.global.t('menu.queue'), i18n.global.t('action.queueTop'))).toBe(true)
-    expect(api.setTorrentPriority).toHaveBeenCalledWith(['a'.repeat(40)], 'topPrio')
+
+    expect(api.setTorrentPriority, 'must not send a request that cannot work').not.toHaveBeenCalled()
+
+    /*
+     * Assert on the toast store, not on the DOM: `ToastHost` is a separate
+     * component that this suite does not mount, so nothing renders the message
+     * even though it was raised.
+     */
+    const { toasts } = useToast()
+    const warning = toasts.value.find((x) => x.tone === 'warning')
+    expect(warning, 'the user must be told why nothing happened').toBeTruthy()
+    expect(warning!.message).toBe(i18n.global.t('menu.queueNotQueued'))
+    // And it must not also claim success.
+    expect(toasts.value.some((x) => x.tone === 'success')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('Queue actions skip force-started torrents but still move the queued ones', async () => {
+    /*
+     * Force start makes a torrent ignore the queue, so its position is -1 too.
+     * Mixing the two must still move the queued torrent rather than refusing
+     * the whole selection.
+     */
+    const forced = makeTorrent({ hash: 'b'.repeat(40), name: 'forced.iso', force_start: true })
+    const queued = makeTorrent({ hash: 'c'.repeat(40), name: 'queued.iso', priority: 3 })
+
+    const { wrapper } = await mountDashboard([forced, queued])
+
+    // Select both rows so the action targets the whole selection.
+    const boxes = [...document.querySelectorAll('.ttable__row input[type="checkbox"]')] as HTMLElement[]
+    for (const box of boxes) {
+      ;(box as HTMLInputElement).click()
+      await flushPromises()
+    }
+    await nextTick()
+
+    await openMenu(wrapper)
+    expect(await clickSubmenu(i18n.global.t('menu.queue'), i18n.global.t('action.queueUp'))).toBe(true)
+
+    expect(api.setTorrentPriority).toHaveBeenCalledTimes(1)
+    const [hashes, endpoint] = api.setTorrentPriority.mock.calls[0] as unknown as [string[], string]
+    expect(endpoint).toBe('increasePrio')
+    expect(hashes, 'only the queued torrent may be sent').toEqual(['c'.repeat(40)])
+    wrapper.unmount()
   })
 
   it('Copy name writes to the clipboard', async () => {
@@ -469,5 +577,147 @@ describe('context menu acts on the whole selection', () => {
 
     const call = api.recheckTorrents.mock.calls[0] as unknown as [string[]]
     expect(call?.[0].slice().sort()).toEqual([A_HASH, B_HASH].sort())
+  })
+})
+
+/**
+ * Escape clears the selection.
+ *
+ * The interesting part is not that it works, but that it does NOT fire when
+ * something else legitimately owns the key: a context menu, a confirmation
+ * dialog, or a text field. Those cases are asserted here because getting the
+ * precedence wrong would either wipe a selection the user was acting on, or
+ * steal Escape from a dialog.
+ */
+describe('Escape clears the selection', () => {
+  /** Press Escape on the document, as the browser would. */
+  async function pressEscape(target: EventTarget = document) {
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+    await nextTick()
+  }
+
+  function selectedRowCount(wrapper: ReturnType<typeof mount>): number {
+    return wrapper.findAll('.ttable__row.is-selected').length
+  }
+
+  async function selectBoth(wrapper: ReturnType<typeof mount>) {
+    const boxes = rowCheckboxes(wrapper)
+    await boxes[0].trigger('click')
+    await boxes[1].trigger('click')
+    await flushPromises()
+  }
+
+  it('clears a single selection', async () => {
+    const [a, b] = pair()
+    const { wrapper } = await mountDashboard([a, b])
+    await flushPromises()
+
+    await rowCheckboxes(wrapper)[0].trigger('click')
+    await flushPromises()
+    expect(selectedRowCount(wrapper), 'precondition: one row selected').toBe(1)
+
+    await pressEscape()
+    expect(selectedRowCount(wrapper), 'Escape should have cleared the selection').toBe(0)
+    wrapper.unmount()
+  })
+
+  it('clears a multi-row selection', async () => {
+    const [a, b] = pair()
+    const { wrapper } = await mountDashboard([a, b])
+    await flushPromises()
+    await selectBoth(wrapper)
+    expect(selectedRowCount(wrapper), 'precondition: both rows selected').toBe(2)
+
+    await pressEscape()
+    expect(selectedRowCount(wrapper)).toBe(0)
+    wrapper.unmount()
+  })
+
+  it('does nothing when there is no selection', async () => {
+    const [a, b] = pair()
+    const { wrapper } = await mountDashboard([a, b])
+    await flushPromises()
+
+    await pressEscape()
+    expect(selectedRowCount(wrapper)).toBe(0)
+    // And it must not raise a spurious toast.
+    expect(useToast().toasts.value).toEqual([])
+    wrapper.unmount()
+  })
+
+  it('closes an open context menu INSTEAD of clearing the selection', async () => {
+    /*
+     * The first Escape belongs to the menu. Clearing the selection behind it
+     * would destroy the very thing the user opened the menu to act on.
+     */
+    const [a, b] = pair()
+    const { wrapper } = await mountDashboard([a, b])
+    await flushPromises()
+    await selectBoth(wrapper)
+
+    await openMenu(wrapper)
+    expect(menuIsOpen(), 'precondition: menu open').toBe(true)
+
+    await pressEscape()
+    expect(menuIsOpen(), 'Escape should close the menu').toBe(false)
+    expect(selectedRowCount(wrapper), 'the selection must survive the first Escape').toBe(2)
+    wrapper.unmount()
+  })
+
+  it('does not clear the selection while a confirm dialog is open', async () => {
+    /*
+     * Remove opens a confirmation. Escape there belongs to the dialog; wiping
+     * the selection underneath would leave the pending action targeting nothing.
+     */
+    const [a, b] = pair()
+    const { wrapper } = await mountDashboard([a, b])
+    await flushPromises()
+    await selectBoth(wrapper)
+
+    await openMenu(wrapper)
+    expect(await clickItem(i18n.global.t('action.remove'))).toBe(true)
+    expect(document.body.textContent, 'precondition: confirm dialog shown').toContain(
+      i18n.global.t('action.remove'),
+    )
+
+    await pressEscape()
+    expect(selectedRowCount(wrapper), 'the selection must survive the dialog').toBe(2)
+    wrapper.unmount()
+  })
+
+  it('does not steal Escape from a text input', async () => {
+    /*
+     * Escape inside a field may revert typed text (native behaviour, and what
+     * the filter box relies on). Deselecting torrents at the same time would be
+     * an unrelated side effect.
+     */
+    const [a, b] = pair()
+    const { wrapper } = await mountDashboard([a, b])
+    await flushPromises()
+    await selectBoth(wrapper)
+
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    await pressEscape(input)
+
+    expect(selectedRowCount(wrapper), 'a field must keep its own Escape').toBe(2)
+    input.remove()
+    wrapper.unmount()
+  })
+
+  it('removes its listener when the view unmounts', async () => {
+    // A leaked document listener would keep clearing selections on every other
+    // screen — the dashboard is not the only view.
+    const [a, b] = pair()
+    const { wrapper } = await mountDashboard([a, b])
+    await flushPromises()
+    await selectBoth(wrapper)
+    wrapper.unmount()
+
+    // Nothing should throw or change; the handler must be gone.
+    await pressEscape()
+    expect(useToast().toasts.value).toEqual([])
   })
 })
