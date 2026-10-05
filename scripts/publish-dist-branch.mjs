@@ -9,9 +9,12 @@
  * Usage:
  *   node scripts/publish-dist-branch.mjs [--push]
  *
- * Without --push it commits locally and prints what would happen; with --push
- * it pushes to origin. The branch is rebuilt from scratch each time, so the
- * history stays a single commit rather than accumulating a diff per build.
+ * Without --push it commits locally and prints what would happen; with --push it
+ * pushes to EVERY configured remote that carries the branch, so the mirrors stay
+ * in step instead of one of them silently going stale.
+ *
+ * The branch is rebuilt from scratch each time, so the history stays a single
+ * commit rather than accumulating a diff per build.
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -200,12 +203,46 @@ ${fileCount} files. Contains no source — see the main branch for that.`,
   )
 
   if (shouldPush) {
-    console.log('pushing…')
-    // Force: the branch is rebuilt from scratch each time, so the remote copy
-    // is replaced rather than fast-forwarded.
-    run('git', ['push', '--force', 'origin', BRANCH])
+    /*
+     * Push to every remote, not just `origin`.
+     *
+     * This repository is mirrored (a self-hosted Gitea plus GitHub), and the
+     * `dist` branch is the download package for people without a build
+     * toolchain. Pushing to one remote only meant the other mirror silently
+     * served a stale package until someone remembered to push to it by hand.
+     *
+     * Each remote is attempted independently: a temporary outage on one must not
+     * leave the others unpublished, but any failure still exits non-zero so it
+     * cannot pass unnoticed in a script.
+     */
+    const remotes = git('remote').split('\n').map((r) => r.trim()).filter(Boolean)
+    if (remotes.length === 0) {
+      console.error('No git remote is configured — nothing to push to.')
+      process.exitCode = 1
+    } else {
+      const failed = []
+      for (const remote of remotes) {
+        console.log(`pushing ${BRANCH} → ${remote}…`)
+        try {
+          // Force: the branch is rebuilt from scratch each time, so the remote
+          // copy is replaced rather than fast-forwarded.
+          run('git', ['push', '--force', remote, BRANCH])
+        } catch {
+          failed.push(remote)
+          console.error(`  ✗ ${remote} failed`)
+        }
+      }
+      if (failed.length) {
+        console.error(`\nPushed to ${remotes.length - failed.length}/${remotes.length} remotes.`)
+        console.error(`Failed: ${failed.join(', ')}`)
+        console.error('Re-run `pnpm publish:dist` once the remote is reachable.')
+        process.exitCode = 1
+      } else {
+        console.log(`pushed to all ${remotes.length} remotes: ${remotes.join(', ')}`)
+      }
+    }
   } else {
-    console.log('committed locally. Re-run with --push to publish.')
+    console.log('committed locally. Re-run with --push to publish to every remote.')
   }
 } finally {
   // Restoring the branch is what guarantees a crash cannot strand the checkout
