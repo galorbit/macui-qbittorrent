@@ -1,0 +1,7 @@
+{
+  "name": "qBittorrent WebUI",
+  "short_name": "qBittorrent",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "icons": []
+}

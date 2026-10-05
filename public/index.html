@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#1e1e20" />
+    <link rel="icon" href="favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <title>qBittorrent</title>
+
+    <!--
+      ==========================================================================
+      UNAUTHENTICATED ENTRY — this is the SIGN-IN PAGE.
+      ==========================================================================
+
+      Why this must be a login form and NOT a redirect
+      ------------------------------------------------
+      qBittorrent resolves every request like this:
+
+          localPath = root / (session ? "private" : "public") / <request path>
+
+      With no session, EVERY request path P lands on <root>/public/P. So a page
+      at public/index.html can never hand a logged-out visitor into private/:
+      its target "/index.html" resolves right back to public/index.html, giving
+      an infinite redirect loop (the page just spins forever).
+
+      The stock WebUI solves this the same way — its public/index.html is a real
+      login form. It authenticates against the WebAPI, the server sets the
+      session cookie, and only THEN does navigation resolve to
+      private/index.html.
+
+      Order is therefore load-bearing: authenticate first, redirect second.
+      ==========================================================================
+    -->
+
+    <script>
+      // Apply the persisted theme before first paint.
+      ;(() => {
+        try {
+          const stored = localStorage.getItem('macui.theme')
+          const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          const dark = stored === 'dark' || ((stored === 'system' || !stored) && prefersDark)
+          document.documentElement.classList.toggle('dark', dark)
+        } catch {
+          /* defaults to dark */
+        }
+      })()
+    </script>
+
+    <style>
+      :root {
+        --bg: #f5f5f7;
+        --bg-elev: #ffffff;
+        --fg: #1d1d1f;
+        --muted: #6e6e73;
+        --accent: #007aff;
+        --accent-hover: #0a6fd8;
+        --danger: #ff3b30;
+        --border: rgba(0, 0, 0, 0.12);
+        --shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+      }
+      .dark {
+        --bg: #1e1e20;
+        --bg-elev: #2c2c2e;
+        --fg: #f5f5f7;
+        --muted: #a1a1a6;
+        --accent: #0a84ff;
+        --accent-hover: #3d9bff;
+        --danger: #ff453a;
+        --border: rgba(255, 255, 255, 0.14);
+        --shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--fg);
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue',
+          'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Roboto, Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -webkit-text-size-adjust: 100%;
+      }
+
+      /* Decorative macOS-style wallpaper wash. */
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        background:
+          radial-gradient(
+            1200px 600px at 15% 10%,
+            color-mix(in srgb, var(--accent) 26%, transparent),
+            transparent 60%
+          ),
+          radial-gradient(900px 500px at 85% 90%, rgba(175, 82, 222, 0.22), transparent 60%);
+        filter: blur(10px);
+        pointer-events: none;
+      }
+
+      .panel {
+        position: relative;
+        width: 100%;
+        max-width: 360px;
+        padding: 32px 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        border-radius: 18px;
+        background: var(--bg-elev);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+      }
+
+      @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+        .panel {
+          background: color-mix(in srgb, var(--bg-elev) 78%, transparent);
+          -webkit-backdrop-filter: blur(22px) saturate(180%);
+          backdrop-filter: blur(22px) saturate(180%);
+        }
+      }
+
+      .brand {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        text-align: center;
+      }
+
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 56px;
+        height: 56px;
+        border-radius: 14px;
+        background: var(--accent);
+        color: #fff;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+        margin-bottom: 4px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 600;
+      }
+
+      .subtitle {
+        margin: 0;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+
+      label {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--muted);
+      }
+
+      input[type='text'],
+      input[type='password'] {
+        width: 100%;
+        /* 16px prevents iOS Safari from zooming the page on focus. */
+        font-size: 16px;
+        height: 40px;
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--fg);
+        font-family: inherit;
+        transition:
+          border-color 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+
+      input:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+      }
+
+      button {
+        width: 100%;
+        height: 42px;
+        margin-top: 4px;
+        border: none;
+        border-radius: 10px;
+        background: var(--accent);
+        color: #fff;
+        font-size: 15px;
+        font-weight: 500;
+        font-family: inherit;
+        cursor: pointer;
+        transition:
+          background-color 0.15s ease,
+          transform 0.12s ease,
+          opacity 0.15s ease;
+      }
+
+      button:hover:not(:disabled) {
+        background: var(--accent-hover);
+      }
+
+      button:active:not(:disabled) {
+        transform: scale(0.985);
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+
+      .remember {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      .remember input {
+        width: 15px;
+        height: 15px;
+        accent-color: var(--accent);
+      }
+
+      .error {
+        margin: 0;
+        padding: 8px 12px;
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--danger) 14%, transparent);
+        color: var(--danger);
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+
+      .error:empty {
+        display: none;
+      }
+
+      .spinner {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        margin-right: 8px;
+        vertical-align: -2px;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .spinner {
+          animation-duration: 2s;
+        }
+        button:active:not(:disabled) {
+          transform: none;
+        }
+      }
+
+      noscript {
+        font-size: 13px;
+        color: var(--muted);
+        text-align: center;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="panel">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="30" height="30">
+            <path
+              d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 4.2a1.4 1.4 0 011.4 1.4v5.3l3 3a1.4 1.4 0 01-2 2l-3.4-3.4a1.4 1.4 0 01-.4-1V7.6A1.4 1.4 0 0112 6.2z"
+              fill="currentColor"
+            />
+          </svg>
+        </span>
+        <h1>qBittorrent</h1>
+        <p class="subtitle" id="subtitle">Sign in to continue</p>
+      </div>
+
+      <noscript> JavaScript is required to sign in. </noscript>
+
+      <form id="loginform" novalidate>
+        <div class="field">
+          <label for="username" id="lbl-username">Username</label>
+          <input
+            type="text"
+            id="username"
+            name="username"
+            autocomplete="username"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            required
+          />
+        </div>
+
+        <div class="field">
+          <label for="password" id="lbl-password">Password</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+
+        <label class="remember">
+          <input type="checkbox" id="remember" checked />
+          <span id="lbl-remember">Remember username</span>
+        </label>
+
+        <p class="error" id="error" role="alert"></p>
+
+        <button type="submit" id="submit">Sign In</button>
+      </form>
+    </div>
+
+    <script>
+      ;(() => {
+        'use strict'
+
+        // ---- Minimal i18n ------------------------------------------------
+        // Kept inline and dependency-free on purpose: this page is the only way
+        // in, so it must work even if the application bundle never loads.
+        const STRINGS = {
+          en: {
+            subtitle: 'Sign in to continue',
+            username: 'Username',
+            password: 'Password',
+            remember: 'Remember username',
+            submit: 'Sign In',
+            signingIn: 'Signing in…',
+            failed: 'Invalid username or password',
+            banned: 'Too many failed attempts. Your IP address has been temporarily banned.',
+            offline: 'Unable to reach qBittorrent',
+            noscript: 'JavaScript is required to sign in.',
+          },
+          'zh-CN': {
+            subtitle: '登录以继续',
+            username: '用户名',
+            password: '密码',
+            remember: '记住用户名',
+            submit: '登录',
+            signingIn: '正在登录…',
+            failed: '用户名或密码错误',
+            banned: '失败次数过多，您的 IP 地址已被暂时封禁。',
+            offline: '无法连接到 qBittorrent',
+            noscript: '需要启用 JavaScript 才能登录。',
+          },
+        }
+
+        function pickLocale() {
+          try {
+            const stored = localStorage.getItem('macui.locale')
+            if (stored && STRINGS[stored]) return stored
+          } catch {
+            /* storage unavailable */
+          }
+          const langs = navigator.languages || [navigator.language || '']
+          for (const tag of langs) {
+            const lower = String(tag).toLowerCase()
+            if (lower.startsWith('zh')) return 'zh-CN'
+            if (lower.startsWith('en')) return 'en'
+          }
+          return 'en'
+        }
+
+        const locale = pickLocale()
+        const t = STRINGS[locale]
+        document.documentElement.lang = locale
+
+        for (const [id, key] of [
+          ['subtitle', 'subtitle'],
+          ['lbl-username', 'username'],
+          ['lbl-password', 'password'],
+          ['lbl-remember', 'remember'],
+        ]) {
+          const el = document.getElementById(id)
+          if (el) el.textContent = t[key]
+        }
+        const submitButton = document.getElementById('submit')
+        submitButton.textContent = t.submit
+        const noscriptEl = document.querySelector('noscript')
+        if (noscriptEl) noscriptEl.textContent = t.noscript
+
+        const form = document.getElementById('loginform')
+        const usernameEl = document.getElementById('username')
+        const passwordEl = document.getElementById('password')
+        const rememberEl = document.getElementById('remember')
+        const errorEl = document.getElementById('error')
+
+        // Pre-fill only the username — never the password.
+        let restored = false
+        try {
+          const saved = localStorage.getItem('macui.username')
+          if (saved) {
+            usernameEl.value = saved
+            restored = true
+          }
+        } catch {
+          /* ignore */
+        }
+        ;(restored ? passwordEl : usernameEl).focus()
+
+        function setError(message) {
+          errorEl.textContent = message
+        }
+
+        function setBusy(busy) {
+          submitButton.disabled = busy
+          submitButton.innerHTML = busy
+            ? '<span class="spinner"></span>' + t.signingIn
+            : t.submit
+        }
+
+        /** Where the app actually lives once a session exists. */
+        function appUrl() {
+          return new URL('index.html', window.location.origin + '/').href
+        }
+
+        /**
+         * Authenticate, THEN navigate.
+         *
+         * Navigating before the session cookie exists would bounce straight
+         * back here, because without a session "/index.html" also resolves to
+         * public/index.html. That was the cause of the endless spinner.
+         *
+         * Response handling is deliberately tolerant. qBittorrent builds differ
+         * in what a successful login returns:
+         *
+         *   200 + body "Ok."   the documented behaviour (authcontroller.cpp)
+         *   204 + no body      observed in the wild; the session cookie IS set
+         *   200 + body "Fails." a REJECTED login — a real 2xx, so the body is
+         *                      the only signal
+         *
+         * So: a 2xx means success UNLESS the body explicitly says "Fails.",
+         * and an empty body is treated as success. Reading the body as the
+         * primary signal is what caused valid logins to be reported as wrong
+         * credentials while Ctrl+F5 sailed straight through.
+         */
+        async function signIn(event) {
+          event.preventDefault()
+          if (!usernameEl.value || !passwordEl.value || submitButton.disabled) return
+
+          setError('')
+          setBusy(true)
+
+          try {
+            const response = await fetch('api/v2/auth/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({
+                username: usernameEl.value,
+                password: passwordEl.value,
+              }).toString(),
+              credentials: 'same-origin',
+              cache: 'no-store',
+            })
+
+            // 204 has no body at all; response.text() still resolves to ''.
+            const body = (await response.text().catch(() => '')).trim()
+
+            // An explicit rejection, whatever the status.
+            if (/^fails\.?$/i.test(body)) {
+              setError(t.failed)
+              passwordEl.value = ''
+              passwordEl.focus()
+              setBusy(false)
+              return
+            }
+
+            // A ban is reported with 403 and an explanatory message.
+            if (response.status === 403) {
+              setError(/banned/i.test(body) ? t.banned : t.failed)
+              setBusy(false)
+              return
+            }
+
+            // Any other non-2xx is a server-side problem, not bad credentials.
+            if (!response.ok) {
+              setError(t.offline)
+              setBusy(false)
+              return
+            }
+
+            // 2xx without "Fails." => signed in. Confirm the session is really
+            // usable before navigating, so a silent failure surfaces here
+            // rather than as a redirect loop.
+            const verified = await fetch('api/v2/app/version', {
+              credentials: 'same-origin',
+              cache: 'no-store',
+            })
+            if (!verified.ok) {
+              setError(t.failed)
+              setBusy(false)
+              return
+            }
+
+            try {
+              if (rememberEl.checked) localStorage.setItem('macui.username', usernameEl.value)
+              else localStorage.removeItem('macui.username')
+              // Carry the language choice into the app.
+              localStorage.setItem('macui.locale', locale)
+            } catch {
+              /* ignore */
+            }
+
+            // The session cookie is now set, so this resolves to
+            // private/index.html.
+            window.location.replace(appUrl())
+          } catch {
+            // Network-level failure: daemon down, DNS, proxy.
+            setError(t.offline)
+            setBusy(false)
+          }
+        }
+
+        form.addEventListener('submit', signIn)
+
+        // If a session already exists — a stale bookmark, or the cookie simply
+        // outlived the tab — skip the form. A cheap authenticated endpoint
+        // tells us: 200 means we are already signed in.
+        ;(async () => {
+          try {
+            const probe = await fetch('api/v2/app/version', {
+              credentials: 'same-origin',
+              cache: 'no-store',
+            })
+            if (probe.ok) window.location.replace(appUrl())
+          } catch {
+            /* offline: leave the form visible */
+          }
+        })()
+      })()
+    </script>
+  </body>
+</html>
