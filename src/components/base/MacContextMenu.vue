@@ -62,6 +62,115 @@ const pos = ref({ x: 0, y: 0 })
 const openSub = ref<string | null>(null)
 /** Index of the keyboard-focused item in the top level. */
 const activeIndex = ref(-1)
+/**
+ * Viewport coordinates for the open submenu.
+ *
+ * WHY `fixed` RATHER THAN `absolute`
+ * ----------------------------------
+ * The submenu is a descendant of `.ctxmenu__list`, which scrolls
+ * (`overflow-y: auto`) whenever the menu is taller than 75vh. An absolutely
+ * positioned child of a scrolling box is CLIPPED by it, so opening "分类" on a
+ * long menu left a ~8px sliver of a 176px submenu visible — measured, not
+ * guessed: the list's right edge sat at x=536 while the submenu began at x=528.
+ * The user saw a thin empty box with a scrollbar of its own.
+ *
+ * Positioning the submenu `fixed` takes it out of that clip. The coordinates are
+ * measured from the parent row at the moment it opens, so the popup still lines
+ * up with the item the user hovered.
+ */
+const subPos = ref({ x: 0, y: 0 })
+/** Cap on the open submenu's height, so it scrolls rather than overflowing. */
+const subMaxHeight = ref(0)
+
+/** The single open submenu element (at most one exists at a time). */
+const submenuEl = ref<HTMLElement | null>(null)
+
+/** The row element whose `id` is currently open, for measuring its position. */
+const parentRowEl = ref<HTMLElement | null>(null)
+
+/**
+ * Open or close a submenu and, when opening, position it.
+ *
+ * Placement happens after `nextTick` because the element does not exist until
+ * Vue has rendered it — measuring before that returns a zero-sized box and the
+ * popup would be placed as if it had no width.
+ */
+async function setOpenSub(id: string | null): Promise<void> {
+  openSub.value = id
+  if (!id) {
+    parentRowEl.value = null
+    return
+  }
+  await positionOpenSubmenu()
+}
+
+/** Capture the hovered row so the submenu can be measured from it. */
+function onItemEnter(item: ContextMenuItem, event: MouseEvent): void {
+  if (!item.children?.length) {
+    void setOpenSub(null)
+    return
+  }
+  const row = (event.currentTarget as HTMLElement | null)?.closest('.ctxmenu__row')
+  parentRowEl.value = (row as HTMLElement | null) ?? null
+  void setOpenSub(item.id)
+}
+
+/** Measure the parent row and place its submenu beside it, inside the viewport. */
+function placeSubmenu(parentRow: HTMLElement | null, el: HTMLElement | null): void {
+  if (!parentRow || !el) return
+  const row = parentRow.getBoundingClientRect()
+  const w = el.offsetWidth
+  const h = el.offsetHeight
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const margin = 8
+
+  // Prefer the right side; flip left when there is no room.
+  let x = row.right + 2
+  if (x + w + margin > vw) x = Math.max(margin, row.left - w - 2)
+
+  /*
+   * Vertical placement.
+   *
+   * Start aligned with the parent row, then pull the popup up until it fits.
+   *
+   * The height is NOT trusted to be correct on the first pass: the element has
+   * been inserted but may not be laid out yet, so `offsetHeight` can read 0.
+   * An earlier version skipped the clamp when the height was 0, which let any
+   * submenu opened near the bottom of a scrolled menu hang entirely off-screen
+   * (measured: top 545 in a 460px viewport, for a 112px submenu).
+   *
+   * Clamping unconditionally makes the result correct on every pass, and a
+   * later pass with the true height simply refines it.
+   */
+  const usable = Math.max(0, vh - margin * 2)
+  const effectiveH = h > 0 ? h : usable
+  let y = row.top - 4
+  if (y + effectiveH + margin > vh) y = vh - effectiveH - margin
+  if (y + h + margin > vh) y = vh - h - margin
+  // Never above the viewport top, whatever the arithmetic says.
+  y = Math.max(margin, y)
+
+  // A submenu taller than the viewport must scroll inside itself rather than
+  // run off the screen; cap it to the space actually available below `y`.
+  subMaxHeight.value = Math.max(120, vh - y - margin)
+  subPos.value = { x, y }
+}
+
+/**
+ * Place once the popup has been laid out, then again after paint.
+ *
+ * The second pass exists because a submenu's height is not final on the very
+ * first frame: fonts and wrapped labels can change it. Re-running is cheap and
+ * idempotent, and it is the difference between a tall submenu fitting on screen
+ * and hanging off the bottom.
+ */
+async function positionOpenSubmenu(): Promise<void> {
+  await nextTick()
+  placeSubmenu(parentRowEl.value, submenuEl.value)
+  // After the browser has painted, measure again in case the height settled.
+  requestAnimationFrame(() => placeSubmenu(parentRowEl.value, submenuEl.value))
+}
 
 /** Leaf items only — separators and submenu parents are not directly actionable. */
 const flatIds = computed(() =>
@@ -100,17 +209,24 @@ async function reposition(): Promise<void> {
 watch(
   () => [props.open, props.x, props.y] as const,
   ([open]) => {
-    openSub.value = null
+    void setOpenSub(null)
     activeIndex.value = -1
     if (open) void reposition()
   },
   { immediate: true },
 )
 
-function select(item: ContextMenuItem): void {
+function select(item: ContextMenuItem, event?: MouseEvent): void {
   if (item.disabled) return
   if (item.children?.length) {
-    openSub.value = openSub.value === item.id ? null : item.id
+    if (openSub.value === item.id) {
+      void setOpenSub(null)
+    } else {
+      // Clicking (rather than hovering) also needs the row for measurement.
+      const row = (event?.currentTarget as HTMLElement | null)?.closest('.ctxmenu__row')
+      if (row) parentRowEl.value = row as HTMLElement
+      void setOpenSub(item.id)
+    }
     return
   }
   emit('select', item.id)
@@ -119,8 +235,16 @@ function select(item: ContextMenuItem): void {
 /** Close on outside click, Escape, scroll or resize. */
 function onDocumentPointerDown(event: PointerEvent): void {
   if (!props.open) return
+  const target = event.target as Node
   const el = root.value
-  if (el && !el.contains(event.target as Node)) emit('close')
+  if (el?.contains(target)) return
+  /*
+   * The submenu is teleported to <body>, so it is NOT inside `root`. Without
+   * this second check, pressing a submenu item would count as an outside click
+   * and close the menu before the item's own handler ran.
+   */
+  if (submenuEl.value?.contains(target)) return
+  emit('close')
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -129,7 +253,7 @@ function onKeydown(event: KeyboardEvent): void {
   switch (event.key) {
     case 'Escape':
       event.preventDefault()
-      if (openSub.value) openSub.value = null
+      if (openSub.value) void setOpenSub(null)
       else emit('close')
       break
     case 'ArrowDown':
@@ -213,8 +337,8 @@ onBeforeUnmount(() => {
             :aria-checked="item.checked === undefined ? undefined : item.checked"
             :aria-haspopup="item.children?.length ? 'menu' : undefined"
             :disabled="item.disabled"
-            @click="select(item)"
-            @mouseenter="openSub = item.children?.length ? item.id : null"
+            @click="select(item, $event)"
+            @mouseenter="onItemEnter(item, $event)"
           >
             <!-- Tick column. Always present so labels line up whether or not an
                  item is a toggle. -->
@@ -255,12 +379,34 @@ onBeforeUnmount(() => {
             </svg>
           </button>
 
-          <!-- Submenu -->
-          <ul
-            v-if="item.children?.length && openSub === item.id"
-            class="ctxmenu__list ctxmenu__submenu glass-panel"
-            role="menu"
-          >
+          <!--
+            Submenu, TELEPORTED to <body>.
+ 
+            Teleporting is what actually fixes the clipping, and the reason is
+            subtle enough to be worth recording. Making it `position: fixed`
+            inside the menu did NOT work: `.ctxmenu` carries `backdrop-filter`
+            (from `glass-panel`), and an element with a backdrop-filter becomes
+            the containing block for its fixed-position descendants. So `fixed`
+            resolved against the menu rather than the viewport, and the submenu
+            stayed inside the scrolling `.ctxmenu__list` that clipped it —
+            measured: the submenu was placed at left=862 while the menu itself
+            sat at left=333, and only ~8px of it was visible.
+
+            Moving it out of the menu subtree removes both problems at once: no
+            clipping ancestor, and no containing block.
+          -->
+          <Teleport to="body">
+            <ul
+              v-if="item.children?.length && openSub === item.id"
+              ref="submenuEl"
+              class="ctxmenu__submenu glass-panel"
+              role="menu"
+              :style="{
+                left: `${subPos.x}px`,
+                top: `${subPos.y}px`,
+                maxHeight: subMaxHeight ? `${subMaxHeight}px` : undefined,
+              }"
+            >
             <li
               v-for="child in item.children"
               :key="child.id"
@@ -299,6 +445,7 @@ onBeforeUnmount(() => {
               </button>
             </li>
           </ul>
+          </Teleport>
         </li>
       </ul>
     </div>
@@ -425,22 +572,35 @@ onBeforeUnmount(() => {
   opacity: 0.7;
 }
 
-/* ---- Submenu ---- */
+/* ---- Submenu ----
+ *
+ * Teleported to <body> (see the template), so it is `fixed` against the
+ * VIEWPORT and no ancestor can clip it. Two things made the in-place version
+ * fail, and both are worth remembering:
+ *
+ *   1. it lived inside `.ctxmenu__list`, which scrolls (`overflow-y: auto`) —
+ *      an absolutely positioned child of a scrolling box is clipped by it;
+ *   2. `position: fixed` alone did not help, because `.ctxmenu` has
+ *      `backdrop-filter` (glass-panel), which makes it the containing block for
+ *      fixed descendants. The submenu was therefore positioned relative to the
+ *      menu and still clipped.
+ *
+ * Result before the fix: an ~8px sliver of a 176px submenu, which is what the
+ * user saw as "a thin box with a scrollbar".
+ */
 .ctxmenu__submenu {
-  position: absolute;
-  left: 100%;
-  top: calc(-1 * var(--space-1));
-  margin-left: 2px;
+  position: fixed;
+  z-index: 2001;
+  margin: 0;
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
   min-width: 11rem;
   max-width: 18rem;
-}
-
-/*
- * Flip the submenu to the left when it would leave the viewport.
- * `:has` is well supported in the target browsers; where it is not, the submenu
- * simply stays on the right, which is the pre-existing behaviour.
- */
-.ctxmenu__row:has(.ctxmenu__submenu) .ctxmenu__submenu {
-  left: 100%;
+  /* Long submenus scroll inside themselves rather than running off screen. */
+  max-height: 75vh;
+  overflow-y: auto;
 }
 </style>

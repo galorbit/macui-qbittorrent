@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Context-menu submenus (分类 / 标签 / 复制 / 队列) showed as a thin empty box
+  with a scrollbar instead of their entries.** The popup was rendered inside
+  `.ctxmenu__list`, which scrolls (`overflow-y: auto`) whenever the menu is
+  taller than 75vh — and an absolutely positioned child of a scrolling box is
+  clipped by it. Measured: the submenu (176px wide) intersected the list's clip
+  box for only **8 visible pixels**.
+
+  The obvious fix, `position: fixed`, did NOT work and the reason is worth
+  recording: `.ctxmenu` carries `backdrop-filter` (from `glass-panel`), and an
+  element with a backdrop-filter becomes the **containing block for its
+  fixed-position descendants**. So `fixed` resolved against the menu rather than
+  the viewport and the popup stayed clipped — diagnosed in-page as
+  `fixed resolves against an ancestor: ctxmenu glass-panel
+  (backdrop-filter=blur(22px) saturate(1.6))`.
+
+  The submenu is now **teleported to `<body>`**, which removes both the clipping
+  ancestor and the containing block. It is also clamped into the viewport, with
+  its height re-measured after paint (a first-pass `offsetHeight` of 0 silently
+  skipped the clamp, leaving tall submenus entirely off-screen), and it scrolls
+  internally when taller than the space available. The outside-click handler now
+  accepts the teleported popup, so pressing a submenu entry no longer closes the
+  menu before the entry's own handler runs.
 - **qBittorrent 5.x "stopped" torrents were not recognised anywhere.** 5.0
   renamed the state: `pausedDL`/`pausedUP` became `stoppedDL`/`stoppedUP`, and
   `torrentStateToString()` in `serialize_torrent.cpp` has no `paused*` case at

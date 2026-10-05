@@ -398,6 +398,44 @@ computed 在渲染之外被读取(测试、watcher、devtools),会沿着
 校准方法:先量一个已知坏样本(实测徽章 1.8)和一个好样本,再在两者之间定线;
 改完**重新用像素/合成背景量一遍**,不要只信自己算的令牌值。
 
+### 20. `backdrop-filter` 会让 `position: fixed` 失效(踩过)
+
+右键菜单的二级菜单(分类/标签/复制/队列)曾经**只显示成一条带滚动条的细缝**。
+查了三次才找到真因,值得完整记下来:
+
+**第一层原因:** 二级菜单渲染在 `.ctxmenu__list` 里,而这个列表在菜单高于
+75vh 时会滚动(`overflow-y: auto`)。**滚动盒子会裁掉它内部的绝对定位子元素**。
+实测:二级菜单宽 176px,但只有 **8px** 落在列表的裁剪框内 —— 用户看到的就是
+那条 8px 细缝。
+
+**第二层原因(关键):** 改成 `position: fixed` **没用**。
+因为 `.ctxmenu` 带 `backdrop-filter`(来自 `glass-panel`),而
+**带 backdrop-filter 的元素会成为其 fixed 后代的包含块**。于是 `fixed` 是相对
+菜单定位、不是相对视口,依然被裁剪。页内实测诊断输出:
+
+```
+fixed resolves against an ancestor: ctxmenu glass-panel
+  (backdrop-filter=blur(22px) saturate(1.6))
+```
+
+**正确做法:把二级菜单 `Teleport` 到 `<body>`**,一次解决两个问题 ——
+既没有裁剪祖先,也没有包含块。
+
+**连带必须处理的两件事**(否则修好裁剪又会坏交互):
+
+1. **外部点击判定要认这个弹层。** 它已经在菜单根节点之外,`root.contains()`
+   会判成"点击了外部",于是在菜单项自己的 handler 跑之前就把菜单关了。
+   要额外判断 `submenuEl.contains(target)`。
+2. **定位要夹到视口内,而且不能只量一次。** 首次 `nextTick` 时
+   `offsetHeight` 可能还是 0,`if (h > 0)` 这种守卫会**静默跳过夹取**,
+   导致长菜单底部的二级菜单整块跑到屏幕外(实测 top=545 而视口只有 460)。
+   改成无条件夹取 + 绘制后再量一次。
+
+**通用教训:`transform` / `filter` / `backdrop-filter` / `perspective` /
+`contain` / `will-change` 都会创建包含块。** 本主题大量使用毛玻璃,所以
+"用 `position: fixed` 逃离裁剪"这个常见手法在这里**默认就是坏的**,
+必须 Teleport。
+
 ---
 
 ## 四、目录结构
@@ -579,7 +617,7 @@ pnpm typecheck && pnpm test
 ## 六、测试
 
 ```bash
-pnpm test          # 244 项单元测试
+pnpm test          # 250 项单元测试
 pnpm typecheck     # 必须 0 错误
 pnpm verify:entry  # 22 项登录流程检查(jsdom 跑构建产物)
 pnpm verify:dist   # 服务端路径解析规则
@@ -606,7 +644,7 @@ pnpm verify:dist   # 服务端路径解析规则
 
 **以后加依赖 `dist/` 的测试,记得也要给嵌套块加守卫。**
 `pnpm test` 在有无构建时都应可运行:
-`244 passed`,或 `231 passed / 13 skipped`。
+`250 passed`,或 `237 passed / 13 skipped`。
 
 ### 视觉改动要真的渲染出来看
 
