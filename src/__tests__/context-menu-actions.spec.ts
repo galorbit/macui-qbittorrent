@@ -698,12 +698,66 @@ describe('Escape clears the selection', () => {
     await selectBoth(wrapper)
 
     const input = document.createElement('input')
+    input.type = 'text'
     document.body.appendChild(input)
     input.focus()
     await pressEscape(input)
 
-    expect(selectedRowCount(wrapper), 'a field must keep its own Escape').toBe(2)
+    expect(selectedRowCount(wrapper), 'a text field must keep its own Escape').toBe(2)
     input.remove()
+    wrapper.unmount()
+  })
+
+  it('clears the selection when a CHECKBOX has focus', async () => {
+    /*
+     * THE BUG THIS PINS: ticking a torrent's checkbox leaves it focused, so
+     * every later Escape arrived with that checkbox as the event target. The
+     * handler treated any `INPUT` as a text field and returned early, so Escape
+     * did nothing at all — the exact symptom reported ("pressing Escape does not
+     * exit the selection").
+     *
+     * The original helper used `.trigger('click')`, which in jsdom does not move
+     * focus, so the suite never reproduced it. Focusing the box explicitly is
+     * what makes this test meaningful.
+     */
+    const [a, b] = pair()
+    const { wrapper } = await mountDashboard([a, b])
+    await flushPromises()
+
+    const box = rowCheckboxes(wrapper)[0]
+      .element as HTMLInputElement
+    box.focus()
+    box.click()
+    await flushPromises()
+    await nextTick()
+    expect(selectedRowCount(wrapper), 'precondition: one row selected').toBe(1)
+    expect(document.activeElement, 'precondition: the checkbox holds focus').toBe(box)
+
+    await pressEscape(box)
+    expect(
+      selectedRowCount(wrapper),
+      'Escape must clear the selection even while the checkbox is focused',
+    ).toBe(0)
+    wrapper.unmount()
+  })
+
+  it('clears the selection when a checkbox is focused via the keyboard', async () => {
+    // Keyboard selection: focus the box, then press Space. Same end state, and
+    // the same regression if the text-field guard is widened again.
+    const [a, b] = pair()
+    const { wrapper } = await mountDashboard([a, b])
+    await flushPromises()
+
+    const box = rowCheckboxes(wrapper)[1].element as HTMLInputElement
+    box.focus()
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+    box.click()
+    await flushPromises()
+    await nextTick()
+    expect(selectedRowCount(wrapper)).toBeGreaterThan(0)
+
+    await pressEscape(box)
+    expect(selectedRowCount(wrapper)).toBe(0)
     wrapper.unmount()
   })
 

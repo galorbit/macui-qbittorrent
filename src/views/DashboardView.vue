@@ -346,15 +346,38 @@ function anyOverlayOpen(): boolean {
   )
 }
 
+/**
+ * Does this element hold text the user might be editing?
+ *
+ * Escape belongs to a real text field — it may revert the typed value, and that
+ * is native behaviour the filter box relies on. It does NOT belong to a
+ * checkbox: there is nothing to revert, and treating it as a text field was a
+ * real bug.
+ *
+ * That distinction matters because ticking a torrent's checkbox leaves it
+ * FOCUSED, so every subsequent Escape was delivered with the checkbox as the
+ * event target. The browser's keydown events do not bubble to `document` from
+ * nothing — they carry the focused element — so a blanket
+ * `tag === 'INPUT'` test made Escape do nothing at all for anyone selecting with
+ * the keyboard or simply clicking a box (which keeps focus on it).
+ */
+function isTextField(el: Element | null): boolean {
+  if (!el) return false
+  if ((el as HTMLElement).isContentEditable) return true
+  const tag = el.tagName
+  if (tag === 'TEXTAREA') return true
+  if (tag !== 'INPUT') return false
+  // Only input types that hold editable text.
+  const type = (el as HTMLInputElement).type
+  return !['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file'].includes(type)
+}
+
 function onGlobalKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Escape') return
   // Leave the key to whatever overlay is open.
   if (anyOverlayOpen()) return
-  // Do not steal Escape from a text field (e.g. the filter box), where it may be
-  // used to revert the typed value.
-  const el = event.target as HTMLElement | null
-  const tag = el?.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable) return
+  // Leave it to a field the user is typing in.
+  if (isTextField(event.target as Element | null)) return
   if (selected.value.size === 0) return
 
   clearSelection()

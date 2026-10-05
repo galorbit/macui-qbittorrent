@@ -495,14 +495,35 @@ if (const int position = torrent->queuePosition(); position >= 0)
 自然排在最后 —— 不需要额外的优先级机制。**如果你把取消选中也注册成捕获
 阶段,就会反过来抢在对话框前面清掉选中**,那是个很难发现的 bug。
 
-另外必须显式放行两种情况(它们不是 `MacModal`):输入框内的 Escape
+另外必须显式放行两种情况(它们不是 `MacModal`):**文本框**内的 Escape
 (用于还原输入)、以及本视图用 ref 管理的那些 prompt。
 
-**测试注意:每个 `it` 都要卸载组件。** `DashboardView` 会在 `document`
-上挂 keydown 监听;有 20 个测试挂载后不卸载,于是**每个测试都留下一个
-监听器**。结果是新增的 Escape 测试**单独跑全绿、整个文件跑就红**。
-修法是在 `mountDashboard` 里统一登记,`afterEach` 全部卸载 ——
-比在 20 个测试里逐个记得写 `wrapper.unmount()` 可靠得多。
+**注意:复选框不是文本框(踩过)。** 我第一版写的是 `if (tag === 'INPUT') return`,
+把**所有** input 都当成文本框放行 —— 结果**勾选后按 ESC 完全没反应**,
+用户直接来报 bug。
+
+原因是:**勾选复选框会让它保持焦点**,之后每一次 keydown 的
+`event.target` 都是那个 checkbox,于是被一律放行。
+
+正确做法是**按 input 的 type 判断**是否真的承载可编辑文本:
+
+```js
+const type = el.type
+return !['checkbox','radio','button','submit','reset','range','color','file'].includes(type)
+```
+
+**测试注意(两条,都踩过):**
+
+1. **每个 `it` 都要卸载组件。** `DashboardView` 会在 `document` 上挂
+   keydown 监听;有 20 个测试挂载后不卸载,于是**每个测试都留下一个监听器**。
+   结果是新增的 Escape 测试**单独跑全绿、整个文件跑就红**。
+   修法是在 `mountDashboard` 里统一登记,`afterEach` 全部卸载 ——
+   比在 20 个测试里逐个记得写 `wrapper.unmount()` 可靠得多。
+
+2. **`.trigger('click')` 在 jsdom 里不会移动焦点。** 所以上面那个
+   "复选框保持焦点"的 bug **测试完全测不出来** —— 我原来的断言全绿,
+   但真实浏览器里是坏的。要显式 `box.focus()` 再点,才能复现真实状态。
+   **凡是"焦点相关"的行为,测试必须自己摆出焦点**,不能指望 click 帮你摆。
 
 ---
 
@@ -685,7 +706,7 @@ pnpm typecheck && pnpm test
 ## 六、测试
 
 ```bash
-pnpm test          # 263 项单元测试
+pnpm test          # 265 项单元测试
 pnpm typecheck     # 必须 0 错误
 pnpm verify:entry  # 22 项登录流程检查(jsdom 跑构建产物)
 pnpm verify:dist   # 服务端路径解析规则
@@ -712,7 +733,7 @@ pnpm verify:dist   # 服务端路径解析规则
 
 **以后加依赖 `dist/` 的测试,记得也要给嵌套块加守卫。**
 `pnpm test` 在有无构建时都应可运行:
-`263 passed`,或 `250 passed / 13 skipped`。
+`265 passed`,或 `252 passed / 13 skipped`。
 
 ### 视觉改动要真的渲染出来看
 

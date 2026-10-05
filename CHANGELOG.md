@@ -167,9 +167,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Precedence is deliberate: the shortcut only fires when nothing else owns the
   key. An open context menu consumes the first Escape to close itself (and the
   selection survives), a confirmation dialog keeps Escape for dismissing, and a
-  focused text field keeps it for reverting what was typed. A dead key that
+  focused **text** field keeps it for reverting what was typed. A dead key that
   silently wiped a selection the user was acting on would be worse than no
   shortcut at all.
+
+  A checkbox is deliberately NOT treated as a text field. Ticking a torrent's
+  box leaves it focused, so every later Escape arrived with the checkbox as the
+  event target; an early version bailed out for any INPUT and Escape therefore
+  did nothing at all for anyone selecting with the keyboard or simply clicking a
+  box. Only input types that hold editable text are exempt.
 - **Right-click menu on the torrent list, mirroring the stock WebUI's
   `torrentsTableMenu`.** Right-click a row on desktop, long-press a card on
   mobile. Menu items are data (`src/composables/useTorrentContextMenu.ts`), so the
