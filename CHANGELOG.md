@@ -190,6 +190,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Node is too old or npm/yarn is used instead of pnpm.
 - Removed the bundled CI workflow, as the hosting Gitea instance has no Actions
   runner. The documented local check is the source of truth.
+- **One command now publishes every mirror: `pnpm release`.** The repository is
+  mirrored (self-hosted Gitea plus GitHub) and the `dist` branch is the download
+  package for people with no build toolchain, so a mirror left behind serves a
+  stale package — and that failure is silent until someone reports a bug that was
+  already fixed. `pnpm release` runs the checks, builds, validates the artifacts,
+  pushes the source branch, rebuilds and publishes `dist`, then confirms every
+  remote matches. `pnpm publish:dist` now pushes to **all** configured remotes
+  instead of `origin` only, treating each independently so one being unreachable
+  does not leave the others unpublished.
+
+  The `dist` README also quoted a stale file count and told ZIP downloaders to
+  avoid the very folder they should use; both are corrected.
 
 ### Removed
 

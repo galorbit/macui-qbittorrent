@@ -79,12 +79,13 @@ Current output: 58 files, ~606 KiB, largest file 165 KiB.
 
 ## Updating
 
-On the machine that has Node.js:
+On the machine that has Node.js, from the `main` branch:
 
 ```bash
 git checkout main && git pull
-pnpm install && pnpm build
-# publish the new output to this branch
+git commit ...          # your changes
+pnpm release            # checks, builds, and publishes main + this branch to
+                        # every mirror, then verifies they agree
 ```
 
 On the deployment host, where only the files are needed:

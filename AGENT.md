@@ -39,13 +39,23 @@ qBittorrent WebUI 的 **macOS 风格主题**(圆角 + 毛玻璃),自适应 PC �
 ### 自动化:提交后自动同步
 
 **在 `main` 上提交后,`dist` 分支会自动重建**(通过 `hooks/post-commit`),
-无需手动操作。push 仍然是显式动作:
+无需手动操作。push 仍然是显式动作,**用一条命令做完**:
 
 ```bash
-git commit ...              # 触发自动重建(仅当构建输入变化)
-git push origin main
-git push --force origin dist   # dist 每次重建,必须强推
+git commit ...     # 提交(构建输入变化时会自动重建 dist)
+pnpm release       # 校验 → 构建 → 推 main → 发布 dist → 核对两个远程
 ```
+
+`pnpm release` 会依次:typecheck/lint/test → `pnpm build` → 校验产物 →
+把 `main` 推到**每一个**远程 → 重建并发布 `dist` 到**每一个**远程 →
+用 `ls-remote` 核对两边一致。`pnpm release:dry` 只打印计划不做事。
+
+**为什么要一个脚本:** 这个仓库有**两个镜像**(自建 Gitea + GitHub),而
+`dist` 是给"没有构建工具的用户"下载的静态包。手工执行时漏掉一边的后果是
+**静默的** —— 那个镜像会一直提供旧包,直到有人报一个"早就修好"的 bug。
+
+`pnpm release` 因此会在开始前拒绝脏工作区(发布必须是某个确切版本),
+在某个远程有本地没有的提交时警告,并在每一步失败时给出可照抄的恢复命令。
 
 Hook 的几处刻意设计,**都不是多余的**,改动前请先读懂:
 
@@ -55,7 +65,8 @@ Hook 的几处刻意设计,**都不是多余的**,改动前请先读懂:
   只改文档不会白白重建
 - **绝不阻断提交** —— 提交此时已经落盘,构建失败只报告、不报错,
   否则一次构建抖动就会"吃掉"一个提交
-- **不自动 push** —— 静默推送是发布意外内容的好办法
+- **不自动 push** —— 静默推送是发布意外内容的好办法。hook 只重建本地分支,
+  推送永远由人显式执行(`pnpm release`)。
 
 临时跳过:`SKIP_DIST_SYNC=1 git commit ...`
 
@@ -624,7 +635,9 @@ pnpm verify:dist   # 服务端路径解析规则
 | `pnpm typecheck` | 仅类型检查 |
 | `pnpm verify:entry` | 登录流程检查 |
 | `pnpm verify:dist` | 产物结构检查 |
-| `pnpm publish:dist` | 发布到 `dist` 分支(提交后已自动执行) |
+| `pnpm release` | **一条命令发布**:校验 → 构建 → 推 main → 发布 dist → 核对两个远程 |
+| `pnpm release:dry` | 只打印发布计划,不改任何东西 |
+| `pnpm publish:dist` | 只重建并发布 `dist` 到**所有**远程(不动 main) |
 | `pnpm install` | 装依赖,并自动安装 git hooks |
 | `pnpm lint` / `pnpm format` | ESLint / Prettier |
 
@@ -638,11 +651,24 @@ pnpm verify:dist   # 服务端路径解析规则
 
 ## 八、提交与发布
 
+**一个仓库、两个镜像**(`origin` = 自建 Gitea,`github` = GitHub)。
+发布一条命令:
+
 ```bash
-git push origin main              # 源码
-pnpm build && pnpm publish:dist   # 产物,重建 dist 分支
+git commit ...   # 提交(构建输入变化时 hook 会自动重建本地 dist 分支)
+pnpm release     # 校验 → 构建 → 推 main → 发布 dist → 核对两边一致
 ```
 
+只想更新产物、源码没动时:
+
+```bash
+pnpm build && pnpm publish:dist   # 重建 dist 并推到所有远程
+```
+
+- **推送到"每一个已配置的远程"**,而不是写死 `origin`。加第三个镜像时
+  脚本不需要改。每个远程独立尝试:某个远程临时不可用不会阻止其他远程发布,
+  但整体仍以非零退出,不会被脚本静默忽略。
+- **`dist` 是强推的**,因为每次都是从零重建的单提交分支 —— 这是设计,不是事故。
 - **仓库地址与访问令牌不要写进任何被跟踪的文件。**
   推送时用临时远程地址或凭据助手,用完即改回无凭据的 URL。
   AGENT.md 曾经在这里写着自建 Gitea 的地址和一个令牌环境变量名,
