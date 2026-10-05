@@ -36,21 +36,41 @@ const SKIP_TESTS = process.argv.includes('--skip-tests')
 /**
  * Run a command inheriting stdio; throw on a non-zero exit.
  *
- * `shell: true` is required on Windows: `pnpm` is a `.cmd` shim there, and
- * Node's execFileSync does NOT resolve shell shims — it dies with
- * `spawnSync pnpm ENOENT` even though pnpm works fine in a terminal. `git` is a
- * real executable, but going through the shell for both keeps one code path.
+ * Windows needs special handling for `pnpm`. Measured on this machine,
+ * `where pnpm` returns two candidates and NEITHER is launchable by Node:
+ *
+ *   AppData\Roaming\npm\pnpm       POSIX shell script  → ENOENT
+ *   AppData\Roaming\npm\pnpm.cmd   batch shim          → EINVAL
+ *
+ * So a shell really is required. The subtlety is HOW: passing `shell: true`
+ * together with an args array triggers DEP0190, because Node then concatenates
+ * the arguments instead of escaping them. Building one properly quoted command
+ * line ourselves avoids the warning and is honest about what the shell does.
+ *
+ * Every argument here is a fixed token (a subcommand, a branch or remote name),
+ * never user input, so quoting them is straightforward.
  */
+function quoteForShell(part) {
+  const s = String(part)
+  return /[\s"^&|<>]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
 function run(command, args) {
-  execFileSync(command, args, { stdio: 'inherit', shell: process.platform === 'win32' })
+  if (process.platform === 'win32') {
+    const line = [command, ...args].map(quoteForShell).join(' ')
+    execFileSync(line, { stdio: 'inherit', shell: true })
+    return
+  }
+  execFileSync(command, args, { stdio: 'inherit' })
 }
 
 /** Run a command and capture trimmed stdout. */
 function capture(command, args) {
-  return execFileSync(command, args, {
-    encoding: 'utf8',
-    shell: process.platform === 'win32',
-  }).trim()
+  if (process.platform === 'win32') {
+    const line = [command, ...args].map(quoteForShell).join(' ')
+    return execFileSync(line, { encoding: 'utf8', shell: true }).trim()
+  }
+  return execFileSync(command, args, { encoding: 'utf8' }).trim()
 }
 
 function git(...args) {
