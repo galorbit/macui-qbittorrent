@@ -28,7 +28,7 @@
  * source branch is not ahead of anything — a release that publishes nothing is
  * almost always a mistake.
  */
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 
 const DRY = process.argv.includes('--dry-run')
 const SKIP_TESTS = process.argv.includes('--skip-tests')
