@@ -74,10 +74,18 @@ const indeterminate = computed(
     !props.torrents.every((t) => props.selected.has(t.hash)),
 )
 
-/** Grid template must match the header and every row. */
+/**
+ * Grid template must match the header and every row.
+ *
+ * Compact (tablet) keeps the status badge and drops only the ratio column, so it
+ * needs EIGHT tracks: check / name / size / progress / down / up / eta / status.
+ * The name track also gets a larger share than before, because at tablet widths
+ * the old split truncated every torrent to about nine characters while the
+ * numeric columns kept their fixed widths.
+ */
 const gridTemplate = computed(() =>
   props.compact
-    ? '36px minmax(0, 2.2fr) minmax(0, 1fr) 88px 88px 72px 80px'
+    ? '36px minmax(0, 3fr) 76px minmax(0, 1fr) 76px 76px 64px 84px'
     : '36px minmax(0, 2.4fr) minmax(0, 1fr) 96px 96px 96px 76px 80px 96px',
 )
 
@@ -200,7 +208,6 @@ function ariaSort(key: SortKey): 'ascending' | 'descending' | 'none' {
       </button>
 
       <button
-        v-if="!compact"
         type="button"
         class="ttable__cell ttable__th"
         role="columnheader"
@@ -273,7 +280,14 @@ function ariaSort(key: SortKey): 'ascending' | 'descending' | 'none' {
           {{ formatRatio(torrent.ratio) }}
         </div>
 
-        <div v-if="!compact" class="ttable__cell" role="cell">
+        <!--
+          The status badge is kept in COMPACT (tablet) mode too. Dropping it made
+          the tablet view unable to say whether a torrent was downloading,
+          stopped or errored — the single most useful column — while still
+          spending width on size/progress/speeds/ETA and truncating every name to
+          a handful of characters.
+        -->
+        <div class="ttable__cell" role="cell">
           <TorrentStateBadge :state="torrent.state" />
         </div>
       </div>

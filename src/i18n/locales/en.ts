@@ -83,7 +83,7 @@ export default {
     downloading: 'Downloading',
     seeding: 'Seeding',
     completed: 'Completed',
-    paused: 'Paused',
+    paused: 'Stopped',
     active: 'Active',
     inactive: 'Inactive',
     stalled: 'Stalled',
@@ -121,8 +121,14 @@ export default {
     refresh: 'Refresh',
     hide: 'Hide',
     download: 'Download',
-    resume: 'Resume',
-    pause: 'Pause',
+    /*
+     * The KEY keeps the name `pause` on purpose: qBittorrent 5.x renamed the
+     * endpoint to `torrents/stop` but the two are one action, and the code
+     * (`pauseTorrents`) and this key are internal. Only the visible word
+     * changed, because 5.x calls it "stop" — hence Stop, not Pause.
+     */
+    resume: 'Start',
+    pause: 'Stop',
     remove: 'Remove',
     removeWithFiles: 'Remove and delete files',
     recheck: 'Force recheck',
@@ -230,7 +236,9 @@ export default {
     error: 'Error',
     missingFiles: 'Missing files',
     uploading: 'Seeding',
-    pausedUP: 'Paused',
+    pausedUP: 'Stopped',
+    /* qBittorrent 5.x renamed the stopped states; both spellings are needed. */
+    stoppedUP: 'Stopped',
     queuedUP: 'Queued',
     stalledUP: 'Stalled',
     checkingUP: 'Checking',
@@ -238,7 +246,9 @@ export default {
     allocating: 'Allocating',
     downloading: 'Downloading',
     metaDL: 'Metadata',
-    pausedDL: 'Paused',
+    forcedMetaDL: 'Metadata',
+    pausedDL: 'Stopped',
+    stoppedDL: 'Stopped',
     queuedDL: 'Queued',
     stalledDL: 'Stalled',
     checkingDL: 'Checking',
@@ -308,7 +318,7 @@ export default {
     advanced: 'Advanced options',
     noCategory: 'No category',
     uncategorized: 'Uncategorized',
-    startPaused: 'Start paused',
+    startPaused: 'Add stopped',
     autoTmm: 'Automatic torrent management',
     skipChecking: 'Skip hash checking',
     removeFile: 'Remove {name}',

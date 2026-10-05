@@ -659,7 +659,7 @@ const noUsablePlugins = computed(() => !pluginsLoading.value && enabledPlugins.v
 .search__notice--warn {
   border-color: var(--warning);
   background: var(--warning-soft);
-  color: var(--warning);
+  color: var(--warning-text);
 }
 
 .search__notice-title {
@@ -733,7 +733,7 @@ const noUsablePlugins = computed(() => !pluginsLoading.value && enabledPlugins.v
 }
 
 a.search__name:hover {
-  color: var(--accent);
+  color: var(--accent-text);
   text-decoration: underline;
 }
 
@@ -829,7 +829,7 @@ a.search__name:hover {
 }
 
 .search__plugin-meta a {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 @media (max-width: 899px) {

@@ -11,12 +11,23 @@
  * breaks the build.
  */
 
-/** Torrent states reported by the API. The set is stable across 5.x. */
+/**
+ * Torrent states reported by the API.
+ *
+ * Covers BOTH naming generations, because qBittorrent 5.0 renamed the stop
+ * state and this theme runs on 4.x and 5.x alike:
+ *   `pausedUP`/`pausedDL`   → 4.x
+ *   `stoppedUP`/`stoppedDL` → 5.x (`serialize_torrent.cpp` has no `paused*`
+ *                             case any more)
+ * `forcedMetaDL` is likewise 5.x-only. Treating the set as "stable across 5.x"
+ * while listing only the 4.x names is what hid the rename from the type system.
+ */
 export type TorrentState =
   | 'error'
   | 'missingFiles'
   | 'uploading'
   | 'pausedUP'
+  | 'stoppedUP'
   | 'queuedUP'
   | 'stalledUP'
   | 'checkingUP'
@@ -24,7 +35,9 @@ export type TorrentState =
   | 'allocating'
   | 'downloading'
   | 'metaDL'
+  | 'forcedMetaDL'
   | 'pausedDL'
+  | 'stoppedDL'
   | 'queuedDL'
   | 'stalledDL'
   | 'checkingDL'

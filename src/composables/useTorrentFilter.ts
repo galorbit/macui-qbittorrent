@@ -44,10 +44,13 @@ export function useTorrentFilter({ torrents }: UseTorrentFilterOptions) {
       case 'all':
         return true
       case 'downloading':
+        // `forcedMetaDL` is 5.x-only and belongs with `metaDL`: both mean
+        // "fetching metadata", so both are a download in progress.
         return (
           torrent.state === 'downloading' ||
           torrent.state === 'forcedDL' ||
           torrent.state === 'metaDL' ||
+          torrent.state === 'forcedMetaDL' ||
           torrent.state === 'stalledDL' ||
           torrent.state === 'queuedDL' ||
           torrent.state === 'checkingDL'

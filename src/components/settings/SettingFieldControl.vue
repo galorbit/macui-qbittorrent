@@ -61,31 +61,56 @@ const hint = computed(() => {
  */
 const KIB = 1024
 
-/** Bytes -> the number shown in the input, and the unit it is shown in. */
-const byteDisplay = computed(() => {
+/**
+ * The unit this field is displayed in, chosen from the RAW value.
+ *
+ * This is deliberately separate from the rounded display number. The setter
+ * below must multiply by a factor that is a function of the stored value, not of
+ * the rounded text — deriving it from the display is what made the round trip
+ * lossy: 1500 B/s displays as "1.46 KiB/s", and reading that text back in KiB
+ * gave `trunc(1.46 * 1024)` = 1495. Every byte setting silently drifted a few
+ * bytes (or more: 1500000 → 1499463) whenever the field was edited.
+ */
+const byteUnit = computed(() => {
   const raw = Number(props.modelValue ?? 0)
   const unit = props.field.unit
-
-  if (unit !== 'bytesPerSec' && unit !== 'bytes') {
-    return { value: Number.isFinite(raw) ? raw : 0, suffix: '' }
-  }
-
-  const perSecond = unit === 'bytesPerSec'
-  const suffix = perSecond ? '/s' : ''
-
-  if (raw >= KIB * KIB) {
-    return { value: Math.round((raw / (KIB * KIB)) * 100) / 100, suffix: `MiB${suffix}` }
-  }
-  if (raw >= KIB) {
-    return { value: Math.round((raw / KIB) * 100) / 100, suffix: `KiB${suffix}` }
-  }
-  return { value: raw, suffix: `B${suffix}` }
+  if (unit !== 'bytesPerSec' && unit !== 'bytes') return { factor: 1, suffix: '' }
+  const suffix = unit === 'bytesPerSec' ? '/s' : ''
+  if (raw >= KIB * KIB) return { factor: KIB * KIB, suffix: `MiB${suffix}` }
+  if (raw >= KIB) return { factor: KIB, suffix: `KiB${suffix}` }
+  return { factor: 1, suffix: `B${suffix}` }
 })
 
+/** Bytes -> the number shown in the input, in that unit. */
+const byteDisplay = computed(() => {
+  const raw = Number(props.modelValue ?? 0)
+  const { factor, suffix } = byteUnit.value
+  if (factor === 1) return { value: Number.isFinite(raw) ? raw : 0, suffix }
+  // Two decimals: enough to be readable, and the exact value is preserved on
+  // write-back by `toBytes` below rather than by this rounding.
+  return { value: Math.round((raw / factor) * 100) / 100, suffix }
+})
+
+/**
+ * A displayed number -> bytes, without losing the stored value.
+ *
+ * If the user did not actually change the text (the common case: they edit some
+ * other field, or click in and out of this one), return the stored value
+ * untouched, so `toApi(fromUserEdit(display(x))) === x` for every x. Only a
+ * genuinely different number is scaled through the unit.
+ */
+function toBytes(shown: number, suffix: string): number {
+  const raw = Number(props.modelValue ?? 0)
+  const current = byteDisplay.value
+  if (Number.isFinite(raw) && shown === current.value && suffix === current.suffix) return raw
+
+  const factor = suffix.startsWith('MiB') ? KIB * KIB : suffix.startsWith('KiB') ? KIB : 1
+  const n = Math.trunc(Number(shown) * factor)
+  return Number.isFinite(n) ? n : 0
+}
+
 /** Byte-unit fields are shown scaled, so they need their own binding. */
-const byteField = computed(
-  () => props.field.unit === 'bytesPerSec' || props.field.unit === 'bytes',
-)
+const byteField = computed(() => props.field.unit === 'bytesPerSec' || props.field.unit === 'bytes')
 
 /**
  * The binding for a numeric control.
@@ -121,15 +146,7 @@ const unitSuffix = computed(() => {
 const asByteValue = computed({
   get: () => byteDisplay.value.value,
   set: (v: number) => {
-    // Convert the typed number back to bytes using the SAME unit that was shown.
-    const suffix = byteDisplay.value.suffix
-    const factor = suffix.startsWith('MiB')
-      ? KIB * KIB
-      : suffix.startsWith('KiB')
-        ? KIB
-        : 1
-    const n = Math.trunc(Number(v) * factor)
-    emit('update:modelValue', Number.isFinite(n) ? n : 0)
+    emit('update:modelValue', toBytes(Number(v), byteDisplay.value.suffix))
   },
 })
 

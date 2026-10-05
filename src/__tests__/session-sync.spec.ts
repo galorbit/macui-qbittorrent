@@ -209,6 +209,30 @@ describe('session store: maindata merge', () => {
   })
 
   /**
+   * The 5.x spelling of the stop state must be classified too.
+   *
+   * `torrentStateToString()` on 5.x emits `stoppedDL`/`stoppedUP` and never
+   * `paused*`. Counting only the 4.x names left a stopped torrent in NO bucket
+   * while still counting towards `total`, so the filter chips summed to less
+   * than "all" and the "stopped" chip read 0 on every 5.x server.
+   */
+  it('counts the qBittorrent 5.x stopped states', () => {
+    const store = useSessionStore()
+    store.applyMainData({
+      rid: 1,
+      full_update: true,
+      torrents: {
+        s1: makeTorrent('s1', { state: 'stoppedDL' }),
+        s2: makeTorrent('s2', { state: 'stoppedUP', progress: 1 }),
+        d1: makeTorrent('d1', { state: 'downloading' }),
+      },
+    })
+
+    expect(store.counts.paused, 'stopped torrents must be counted').toBe(2)
+    expect(store.counts.total).toBe(3)
+  })
+
+  /**
    * `server_state.refresh_interval` is MILLISECONDS.
    *
    * The server sets it from `session->refreshInterval()` (default 1500), and

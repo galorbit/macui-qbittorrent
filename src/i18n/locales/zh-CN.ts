@@ -82,7 +82,7 @@ export default {
     downloading: '下载中',
     seeding: '做种中',
     completed: '已完成',
-    paused: '已暂停',
+    paused: '已停止',
     active: '活动',
     inactive: '非活动',
     stalled: '停滞',
@@ -120,8 +120,14 @@ export default {
     refresh: '刷新',
     hide: '收起',
     download: '下载',
+    /*
+     * The KEY keeps the name `pause` on purpose: qBittorrent 5.x renamed the
+     * endpoint to `torrents/stop` but the two are one action, and the code
+     * (`pauseTorrents`) and this key are internal. Only the visible word
+     * changed, because 5.x calls it "stop" — hence 停止, not 暂停.
+     */
     resume: '开始',
-    pause: '暂停',
+    pause: '停止',
     remove: '移除',
     removeWithFiles: '移除并删除文件',
     recheck: '强制重新校验',
@@ -227,7 +233,9 @@ export default {
     error: '出错',
     missingFiles: '文件丢失',
     uploading: '做种中',
-    pausedUP: '已暂停',
+    pausedUP: '已停止',
+    /* qBittorrent 5.x renamed the stopped states; both spellings are needed. */
+    stoppedUP: '已停止',
     queuedUP: '排队中',
     stalledUP: '停滞',
     checkingUP: '校验中',
@@ -235,7 +243,9 @@ export default {
     allocating: '分配空间中',
     downloading: '下载中',
     metaDL: '获取元数据',
-    pausedDL: '已暂停',
+    forcedMetaDL: '获取元数据',
+    pausedDL: '已停止',
+    stoppedDL: '已停止',
     queuedDL: '排队中',
     stalledDL: '停滞',
     checkingDL: '校验中',
@@ -303,7 +313,7 @@ export default {
     advanced: '高级选项',
     noCategory: '无分类',
     uncategorized: '未分类',
-    startPaused: '添加后暂停',
+    startPaused: '添加后停止',
     autoTmm: '自动种子管理',
     skipChecking: '跳过哈希校验',
     removeFile: '移除 {name}',

@@ -18,6 +18,7 @@ import { computed, ref } from 'vue'
 import { getMainData } from '@/api/sync'
 import { getTransferInfo } from '@/api/transfer'
 import { ApiError } from '@/api/http'
+import { isStopped } from '@/utils/format'
 import type { Category, MainData, ServerState, Torrent, TransferInfo } from '@/types/api'
 
 /** Poll interval fallbacks, in ms. */
@@ -148,27 +149,54 @@ export const useSessionStore = defineStore('session', () => {
     () => String(stat('last_external_address_v4') ?? stat('last_external_address_v6') ?? '') || '',
   )
 
-  /** Aggregate counters used by the dashboard's summary cards. */
+  /**
+   * Aggregate counters used by the dashboard's summary cards.
+   *
+   * Classification uses the shared state helpers so the numbers agree with the
+   * filter chips, which build their tallies through `useTorrentFilter`. They used
+   * to disagree: this loop listed only the 4.x `paused*` names, so a 5.x
+   * `stopped*` torrent was counted in NO bucket while still counting towards
+   * `total` — the chips summed to less than "all".
+   *
+   * A torrent may be counted in more than one bucket (a complete seeding torrent
+   * is both `seeding` and `completed`), matching how the chips behave.
+   */
   const counts = computed(() => {
     let downloading = 0
     let seeding = 0
-    let paused = 0
+    let stopped = 0
     let errored = 0
     let completed = 0
     for (const t of torrents.value.values()) {
       const s = t.state
-      if (s === 'downloading' || s === 'metaDL' || s === 'forcedDL' || s === 'stalledDL') {
-        downloading += 1
-      } else if (s === 'uploading' || s === 'forcedUP' || s === 'stalledUP') {
-        seeding += 1
-      } else if (s === 'pausedDL' || s === 'pausedUP') {
-        paused += 1
-      } else if (s === 'error' || s === 'missingFiles') {
-        errored += 1
+      switch (s) {
+        case 'downloading':
+        case 'metaDL':
+        case 'forcedMetaDL':
+        case 'forcedDL':
+        case 'stalledDL':
+        case 'queuedDL':
+        case 'checkingDL':
+          downloading += 1
+          break
+        case 'uploading':
+        case 'forcedUP':
+        case 'stalledUP':
+        case 'queuedUP':
+        case 'checkingUP':
+          seeding += 1
+          break
+        case 'error':
+        case 'missingFiles':
+          errored += 1
+          break
+        default:
+          if (isStopped(s)) stopped += 1
+          break
       }
       if (t.progress >= 1) completed += 1
     }
-    return { downloading, seeding, paused, errored, completed, total: torrents.value.size }
+    return { downloading, seeding, paused: stopped, errored, completed, total: torrents.value.size }
   })
 
   // ---- Merge logic ------------------------------------------------------
@@ -278,8 +306,15 @@ export const useSessionStore = defineStore('session', () => {
       // (the external address in particular). Note that the CUMULATIVE totals
       // are NOT exclusive to it — `server_state` is built from the same
       // `getTransferInfo()` map — so `stat()` reads either one.
+      //
+      // The identity check matters here as much as it does for the main payload:
+      // without it a response that arrives after `stop()`/`reset()` repopulated
+      // `transfer` on a torn-down session, and an older response could overwrite
+      // a newer one (AGENT.md §14).
+      const gen = generation
       void getTransferInfo(controller.signal)
         .then((info) => {
+          if (controller.signal.aborted || gen !== generation || !running) return
           transfer.value = info
         })
         .catch(() => undefined)

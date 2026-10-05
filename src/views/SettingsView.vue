@@ -567,7 +567,7 @@ const shownCount = computed(() => visibleGroups.value.reduce((n, g) => n + g.fie
   border-radius: var(--radius-lg);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .settings__no-results {
@@ -601,7 +601,7 @@ const shownCount = computed(() => visibleGroups.value.reduce((n, g) => n + g.fie
 .settings__dirty {
   flex: 1 1 auto;
   font-size: var(--text-sm);
-  color: var(--warning);
+  color: var(--warning-text);
   font-weight: 500;
 }
 

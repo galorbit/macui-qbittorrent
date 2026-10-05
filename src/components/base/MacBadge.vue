@@ -55,6 +55,14 @@ withDefaults(
   flex: none;
 }
 
+/*
+ * Badge text uses the `*-text` tokens, not the vivid fill colours.
+ *
+ * A badge is small text on a translucent tint of its own colour, which is the
+ * least forgiving combination in the UI: measured from painted pixels, the light
+ * theme's green badge came to 1.8:1 and its accent badge to 3.4:1 — effectively
+ * unreadable. The vivid tokens remain for fills and dots.
+ */
 .mac-badge--neutral {
   background: var(--bg-active);
   color: var(--text-secondary);
@@ -62,22 +70,22 @@ withDefaults(
 
 .mac-badge--accent {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .mac-badge--success {
   background: var(--success-soft);
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .mac-badge--warning {
   background: var(--warning-soft);
-  color: var(--warning);
+  color: var(--warning-text);
 }
 
 .mac-badge--danger {
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .mac-badge--info {

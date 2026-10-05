@@ -207,7 +207,7 @@ async function onSubmit(): Promise<void> {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-text);
   font-size: var(--text-sm);
 }
 </style>

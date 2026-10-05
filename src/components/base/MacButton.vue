@@ -122,8 +122,16 @@ const classes = computed(() => [
 }
 
 /* ---- Variants --------------------------------------------------------- */
+/*
+ * Primary uses `--accent-fill`, not `--accent`.
+ *
+ * The label is white, and white on the light theme's #007aff measures only
+ * 4.02:1 — the button failed AA on its own text. `--accent-fill` is the same
+ * accent darkened just enough to clear it, and is identical to `--accent` in
+ * dark mode where no adjustment is needed.
+ */
 .mac-btn--primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--on-accent);
   border-color: transparent;
   box-shadow: var(--shadow-xs);
@@ -165,8 +173,10 @@ const classes = computed(() => [
   background: var(--bg-active);
 }
 
+/* Destructive buttons carry white text, so they use the darkened fill that lets
+   that text clear AA; `--danger` keeps its vivid value for dots and borders. */
 .mac-btn--danger {
-  background: var(--danger);
+  background: var(--danger-fill);
   color: #fff;
 }
 

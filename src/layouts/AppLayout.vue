@@ -539,7 +539,7 @@ async function handleSignOut(): Promise<void> {
 
 .layout__nav-item.is-active {
   background: var(--bg-selected);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .layout__nav-icon {
@@ -707,7 +707,7 @@ async function handleSignOut(): Promise<void> {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 /* ===================== Mobile ===================== */
@@ -778,7 +778,7 @@ async function handleSignOut(): Promise<void> {
 }
 
 .layout__tab.is-active {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .layout__tab-label {
@@ -831,7 +831,7 @@ async function handleSignOut(): Promise<void> {
 
 .layout__drawer-item.is-active {
   background: var(--bg-selected);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .layout__drawer-stats {

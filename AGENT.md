@@ -32,7 +32,7 @@ qBittorrent WebUI 的 **macOS 风格主题**(圆角 + 毛玻璃),自适应 PC �
 | 分支 | 内容 | 用途 |
 |---|---|---|
 | `main` | 源码 | 开发 |
-| `dist` | **仅编译产物**(孤立分支,47 文件 / ~522 KB) | 部署机直接 clone |
+| `dist` | **仅编译产物**(孤立分支,60 文件 / ~605 KB) | 部署机直接 clone |
 
 **部署机没有 Node.js 和 pnpm**,所以 `dist` 分支是必需的,不是可选优化。
 
@@ -251,8 +251,13 @@ serverState[KEY_SYNC_MAINDATA_REFRESH_INTERVAL] = session->refreshInterval();
 | `torrents/resume` | **`torrents/start`** |
 | `torrents/add` 的 `paused` 参数 | **`stopped` 参数** |
 
-`src/api/torrents.ts` 里的 `pauseTorrents` / `resumeTorrents` 函数名保留
-(界面文案也是"暂停/恢复"),但**发出去的路径是 `stop` / `start`**。
+`src/api/torrents.ts` 里的 `pauseTorrents` / `resumeTorrents` 函数名保留,
+但**发出去的路径是 `stop` / `start`**。
+
+界面上现在显示的也是"开始 / 停止 / 强制开始"(5.x 的叫法):i18n 的 key
+仍叫 `action.pause`,**故意没有跟着改名**,和函数名同理 —— 所以你看到
+`action.pause` 渲染出"停止"是**正确的**,不要把它"改回"暂停。5.x 只有
+**一个**停止动作,再并排加一个"停止"按钮只会发出同一个请求。
 
 **怎么确认一个接口名在当前版本是否存在:** 去
 `src/webui/api/*controller.cpp` 找 `void XxxController::yyyAction()`,
@@ -318,6 +323,69 @@ computed 在渲染之外被读取(测试、watcher、devtools),会沿着
 - 长按卡片 500ms 进入选择模式(触屏习惯)。
 
 **加开关时检查一遍:打开它的控件本身是否也需要它是开的。**
+
+### 17. 状态名在 5.0 也改过(踩过,整版失效)
+
+§11 记了接口名改名,**但状态值也改了,这一条漏了整整一个版本**:
+
+| 4.x | 5.x |
+|---|---|
+| `pausedDL` / `pausedUP` | **`stoppedDL` / `stoppedUP`** |
+| (无) | `forcedMetaDL` |
+
+`serialize_torrent.cpp` 的 `torrentStateToString()` 在 5.x 里**没有任何
+`paused*` 分支**。只判断旧名字会连锁失效:
+
+- `isPaused()` 对 5.x 的**任何**真实状态都返回 false;
+- 「已停止」筛选词条**永远是 0**、点进去是空的;停止的种子反而出现在「运行中」;
+- 统计计数里停止的种子**哪个桶都不进**,但 `total` 还算它 —— 各词条之和不等于「全部」;
+- 徽章直接渲染出 `stoppedDL` 原文(因为 i18n 没有这个 key);
+- 详情页对已停止的种子显示「停止」按钮。
+
+**判断状态一律走 `utils/format.ts` 的 `isStopped()`**,它同时接受两代名字;
+新增状态判断不要在自己组件里写 `=== 'pausedDL'`。
+
+**这条为什么能躲过整套测试(216 全绿):** 所有夹具只用了 4.x 的名字
+(grep `stoppedDL` 在测试里出现 0 次),**测试和代码基于同一个错误假设**。
+这比"没有测试"更危险。**改这类跨版本语义时,先把两代取值都进夹具。**
+
+### 18. 同一个逻辑的两份实现一定会分叉(踩过)
+
+登录判断写了两遍:
+
+| 位置 | 规则 |
+|---|---|
+| `static-public/index.html` | **2xx 即成功,除非 body 明说 `Fails.`**(对的) |
+| `src/api/auth.ts` | `body === 'Ok.'`(错的) |
+
+结果就是 §2 记录过的那个故障**又回来了一次**:某些构建用 `204 + 空 body`
+表示登录成功,SPA 那条路径把它报成"用户名或密码错误"。
+
+它躲过测试的原因是 **`login-view.spec.ts` 把 `@/api/auth` 整个 mock 掉了**,
+所以 `auth.ts` 自己的分支**一行都没被执行过**。`verify:entry` 只跑静态页。
+
+**规则:**
+- 这种判断只能有一份实现,或至少要有**针对真实响应形态**的测试
+  (见 `src/__tests__/auth-login.spec.ts`)。
+- **在模块边界 mock 掉的东西,等于没有测试。** 需要 mock 的是传输层
+  (`@/api/http`)或网络,不是被测模块本身。
+
+### 19. 对比度要量,而且要量在真实背景上(踩过)
+
+浅色主题的徽章在小字上只有 **1.8:1**(AA 要 4.5),`--text-tertiary` 在
+**两个主题里都写着 Apple 深色模式的灰** `#8e8e93`(浅色画布上 2.99:1)。
+
+两个反直觉的点:
+
+1. **同一个色值当"填充"和当"文字"要求完全不同。** `--success: #34c759`
+   做进度条、圆点没问题,做小字就废了。现在文字走 `--*-text` /
+   `--accent-fill` / `--danger-fill`,填充保持鲜艳。
+2. **算对比度不能拿"画布色"当背景。** 玻璃侧栏、`--bg-active` 芯片都比画布
+   更深,同一个灰在画布上 4.66、在芯片上只有 4.24。**要量元素实际所处的
+   合成背景**(把半透明层逐层叠上去),否则会得出"已经达标"的错误结论。
+
+校准方法:先量一个已知坏样本(实测徽章 1.8)和一个好样本,再在两者之间定线;
+改完**重新用像素/合成背景量一遍**,不要只信自己算的令牌值。
 
 ---
 
@@ -500,7 +568,7 @@ pnpm typecheck && pnpm test
 ## 六、测试
 
 ```bash
-pnpm test          # 139 项单元测试
+pnpm test          # 244 项单元测试
 pnpm typecheck     # 必须 0 错误
 pnpm verify:entry  # 22 项登录流程检查(jsdom 跑构建产物)
 pnpm verify:dist   # 服务端路径解析规则
@@ -527,7 +595,7 @@ pnpm verify:dist   # 服务端路径解析规则
 
 **以后加依赖 `dist/` 的测试,记得也要给嵌套块加守卫。**
 `pnpm test` 在有无构建时都应可运行:
-`139 passed`,或 `126 passed / 13 skipped`。
+`244 passed`,或 `231 passed / 13 skipped`。
 
 ### 视觉改动要真的渲染出来看
 

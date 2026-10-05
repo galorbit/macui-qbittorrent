@@ -33,7 +33,7 @@ import {
   setRssRule,
   unreadCount,
 } from '@/api/rss'
-import type { RssArticle, RssFeed, RssNode, RssRule } from '@/types/api'
+import type { RssArticle, RssNode, RssRule } from '@/types/api'
 import { useToast, describeError } from '@/composables/useToast'
 import { useBreakpoint } from '@/composables/useBreakpoint'
 import MacButton from '@/components/base/MacButton.vue'
@@ -45,6 +45,7 @@ import MacBadge from '@/components/base/MacBadge.vue'
 import MacSpinner from '@/components/base/MacSpinner.vue'
 import MacEmptyState from '@/components/base/MacEmptyState.vue'
 import ConfirmDialog from '@/components/base/ConfirmDialog.vue'
+import RssTreeNode from '@/components/rss/RssTreeNode.vue'
 
 const { t, locale } = useI18n()
 const toast = useToast()
@@ -241,7 +242,20 @@ async function doRemove(): Promise<void> {
 }
 
 // --- Article actions -----------------------------------------------------
+/**
+ * Which article's download is in flight.
+ *
+ * Keyed by `feedPath:id`, NOT by `id` alone: article ids are only unique within
+ * a feed, so two feeds that both contain an article "1" made BOTH download
+ * buttons spin when one was clicked (AGENT.md §15 — the same trap as a
+ * non-unique v-for key, which the template below already avoids).
+ */
 const downloading = ref<string | null>(null)
+
+/** The identity of an article for action bookkeeping. */
+function articleKey(article: RssArticle & { feedPath: string }): string {
+  return `${article.feedPath}:${article.id}`
+}
 
 async function download(article: RssArticle & { feedPath: string }): Promise<void> {
   const url = article.torrentURL || article.link
@@ -249,7 +263,7 @@ async function download(article: RssArticle & { feedPath: string }): Promise<voi
     toast.error(t('rss.noTorrentLink'))
     return
   }
-  downloading.value = article.id
+  downloading.value = articleKey(article)
   try {
     // Reuse the torrents endpoint: magnet links and .torrent URLs both go
     // through the normal add path, so RSS needs no separate downloader.
@@ -388,63 +402,18 @@ async function showMatches(name: string): Promise<void> {
           <MacBadge v-if="unread > 0" tone="accent" size="sm">{{ unread }}</MacBadge>
         </button>
 
-        <template v-for="node in tree" :key="node.path">
-          <!-- Folder -->
-          <div v-if="node.kind === 'folder'" class="rss__folder">
-            <button
-              type="button"
-              class="rss__node rss__node--folder"
-              :class="{ 'is-active': selectedPath === node.path }"
-              @click="selectedPath = node.path"
-            >
-              <span class="rss__node-name">{{ node.name }}</span>
-              <MacBadge v-if="unreadCount(node.children) > 0" tone="accent" size="sm">
-                {{ unreadCount(node.children) }}
-              </MacBadge>
-            </button>
-            <div class="rss__children">
-              <button
-                v-for="child in node.children.filter((c) => c.kind === 'feed') as RssFeed[]"
-                :key="child.path"
-                type="button"
-                class="rss__node rss__node--child"
-                :class="{ 'is-active': selectedPath === child.path }"
-                @click="selectedPath = child.path"
-              >
-                <span class="rss__node-name" :title="child.name">
-                  {{ child.title || child.name }}
-                </span>
-                <span v-if="child.hasError" class="rss__warn" :title="t('rss.feedError')">!</span>
-                <MacBadge
-                  v-if="(child.articles ?? []).filter((a) => !a.isRead).length > 0"
-                  tone="accent"
-                  size="sm"
-                >
-                  {{ (child.articles ?? []).filter((a) => !a.isRead).length }}
-                </MacBadge>
-              </button>
-            </div>
-          </div>
-
-          <!-- Feed at the root -->
-          <button
-            v-else
-            type="button"
-            class="rss__node"
-            :class="{ 'is-active': selectedPath === node.path }"
-            @click="selectedPath = node.path"
-          >
-            <span class="rss__node-name" :title="node.name">{{ node.title || node.name }}</span>
-            <span v-if="node.hasError" class="rss__warn" :title="t('rss.feedError')">!</span>
-            <MacBadge
-              v-if="(node.articles ?? []).filter((a) => !a.isRead).length > 0"
-              tone="accent"
-              size="sm"
-            >
-              {{ (node.articles ?? []).filter((a) => !a.isRead).length }}
-            </MacBadge>
-          </button>
-        </template>
+        <!--
+          One recursive component per node. Rendering the tree inline with two
+          hard-coded levels silently dropped folders nested inside folders; see
+          RssTreeNode.vue for the full reasoning.
+        -->
+        <RssTreeNode
+          v-for="node in tree"
+          :key="node.path"
+          :node="node"
+          :selected-path="selectedPath"
+          @select="selectedPath = $event"
+        />
       </aside>
 
       <!-- ===== Articles ===== -->
@@ -510,7 +479,7 @@ async function showMatches(name: string): Promise<void> {
                 v-if="article.torrentURL || article.link"
                 variant="primary"
                 size="sm"
-                :loading="downloading === article.id"
+                :loading="downloading === articleKey(article)"
                 @click="download(article)"
               >
                 {{ t('action.download') }}
@@ -668,7 +637,7 @@ async function showMatches(name: string): Promise<void> {
 }
 
 .rss__unread {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
@@ -691,7 +660,7 @@ async function showMatches(name: string): Promise<void> {
   padding: var(--space-6);
   border-radius: var(--radius-lg);
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 /* ---- Body: tree | articles ---- */
@@ -776,7 +745,7 @@ async function showMatches(name: string): Promise<void> {
   height: 15px;
   border-radius: var(--radius-pill);
   background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--danger-text);
   font-size: 10px;
   font-weight: 700;
 }
@@ -844,7 +813,7 @@ async function showMatches(name: string): Promise<void> {
 }
 
 a.rss__article-title:hover {
-  color: var(--accent);
+  color: var(--accent-text);
   text-decoration: underline;
 }
 
@@ -977,7 +946,7 @@ a.rss__article-title:hover {
 
 .rss__error-text {
   font-size: var(--text-sm);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 @media (max-width: 599px) {

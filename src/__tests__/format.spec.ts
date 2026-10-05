@@ -19,6 +19,7 @@ import {
   isPaused,
   isRunning,
   isStalled,
+  isStopped,
   ordinal,
   stateTone,
 } from '@/utils/format'
@@ -134,6 +135,37 @@ describe('stateTone', () => {
   it('falls back to paused for unknown states', () => {
     expect(stateTone('somethingNew')).toBe('paused')
     expect(stateTone(undefined)).toBe('paused')
+  })
+})
+
+/**
+ * qBittorrent 5.0 renamed the stop state: `pausedDL`/`pausedUP` became
+ * `stoppedDL`/`stoppedUP`, and `torrentStateToString()` on 5.x emits ONLY the
+ * new spelling. Every fixture in this suite used the 4.x names, so the whole
+ * suite agreed with the bug and stayed green while the "stopped" filter matched
+ * nothing on a real 5.x server. These tests pin BOTH generations.
+ */
+describe('state names across qBittorrent versions', () => {
+  it('treats both the 4.x and the 5.x stopped spellings as stopped', () => {
+    for (const state of ['pausedDL', 'pausedUP', 'stoppedDL', 'stoppedUP']) {
+      expect(isStopped(state), `${state} must count as stopped`).toBe(true)
+      expect(isPaused(state), `${state} must count as paused`).toBe(true)
+      expect(isRunning(state), `${state} must not count as running`).toBe(false)
+      expect(stateTone(state)).toBe('paused')
+    }
+  })
+
+  it('does not treat a running torrent as stopped', () => {
+    for (const state of ['downloading', 'uploading', 'forcedDL', 'stalledUP', 'queuedDL']) {
+      expect(isStopped(state), `${state} must not count as stopped`).toBe(false)
+    }
+  })
+
+  it('gives 5.x metadata states the download tone', () => {
+    // `forcedMetaDL` is 5.x-only; without it a magnet being resolved was
+    // coloured as if it were stopped.
+    expect(stateTone('forcedMetaDL')).toBe('download')
+    expect(isActive({ state: 'forcedMetaDL', dlspeed: 0, upspeed: 0 })).toBe(true)
   })
 })
 

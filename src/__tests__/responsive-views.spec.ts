@@ -177,13 +177,20 @@ describe('TorrentTable (desktop presentation)', () => {
     expect(text).toContain('Progress')
   })
 
-  it('hides the optional columns in compact (tablet) mode', async () => {
+  it('drops the ratio column but keeps the status column in compact mode', async () => {
+    /*
+     * Compact mode used to hide BOTH optional columns, which left the tablet
+     * view unable to show whether a torrent was downloading, stopped or errored
+     * — while still truncating every name to a handful of characters. Status is
+     * the more valuable of the two, so it stays and ratio is what goes.
+     */
     const wrapper = mountTable([makeTorrent('a')], { compact: true })
     await flushPromises()
 
     const text = wrapper.text()
-    expect(text).not.toContain('Ratio')
-    expect(text).not.toContain('Status')
+    expect(text, 'ratio should be dropped in compact mode').not.toContain('Ratio')
+    expect(text, 'status must remain visible in compact mode').toContain('Status')
+    expect(wrapper.find('.ttable__row .mac-badge').exists()).toBe(true)
   })
 
   it('emits sort events when a header is clicked', async () => {

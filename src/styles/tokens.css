@@ -52,6 +52,21 @@
   --accent-pressed: #0058bf;
   --accent-soft: rgba(0, 122, 255, 0.12);
   --on-accent: #ffffff;
+  /*
+   * The fill behind white button text.
+   *
+   * `#007aff` with white measures only 4.02:1, so primary buttons failed AA on
+   * their own label. This is the same blue darkened just enough to clear it
+   * (5.28) while staying recognisably the macOS accent. `--accent` itself keeps
+   * its original value for backgrounds, borders and the active-nav tint.
+   */
+  --accent-fill: #0b6bcb;
+  /*
+   * The fill behind white text on a destructive button. White on #ff3b30
+   * measures 3.55, so the fill is darkened until the label clears AA (5.4).
+   * `--danger` keeps its vivid value for dots, borders and hovers.
+   */
+  --danger-fill: #d02a20;
 
   --success: #34c759;
   --success-soft: rgba(52, 199, 89, 0.14);
@@ -60,6 +75,25 @@
   --danger: #ff3b30;
   --danger-soft: rgba(255, 59, 48, 0.14);
   --info: #5ac8fa;
+
+  /*
+   * ---- Semantic TEXT colours -------------------------------------------
+   *
+   * The tokens above are tuned as FILLS: a macOS blue dot, a green progress
+   * bar, a red button. Used as the colour of small text on a light background
+   * they fail WCAG AA badly — measured from real painted pixels, the green
+   * status badge came to 1.8:1 and the accent badge to 3.4:1, against a 4.5
+   * threshold.
+   *
+   * So text uses these darker variants instead, while fills, dots, borders and
+   * progress bars keep the vivid originals. Values are not guesses: each is
+   * measured against the surface it actually sits on (#ffffff cards and the
+   * #f5f5f7 canvas), and all clear 4.5:1.
+   */
+  --accent-text: #0b6bcb; /* 4.85 on canvas, 5.28 on a card */
+  --success-text: #1a6e2e; /* 5.65 on its own tint, 5.4+ on glass */
+  --warning-text: #b25000; /* 4.77 / 5.20 */
+  --danger-text: #c62828; /* 5.16 / 5.62 */
 
   /* ---- Surfaces (light) ------------------------------------------------ */
   --bg-window: #ececee; /* behind everything: the "desktop" */
@@ -74,10 +108,18 @@
 
   /* ---- Text (light) ---------------------------------------------------- */
   --text-primary: #1d1d1f;
-  --text-secondary: #6e6e73;
-  --text-tertiary: #8e8e93;
+  --text-secondary: #5a5a5e; /* min 5.11 even on the tinted chips and glass */
+  /*
+   * Tertiary is the most common small label in the UI (sidebar stat labels,
+   * card labels, settings tab counts, field hints, table categories). It was
+   * #8e8e93 in BOTH themes — that is the Apple DARK-mode grey, and it measured
+   * 2.99:1 on the light canvas, well under AA. Both greys are now chosen
+   * against the surfaces that actually occur, INCLUDING the translucent glass
+   * and tinted chips, which are darker than the plain canvas.
+   */
+  --text-tertiary: #5a5a5e;
   --text-inverse: #ffffff;
-  --text-link: #007aff;
+  --text-link: #0b6bcb;
 
   /* ---- Borders & separators ------------------------------------------- */
   --border: rgba(0, 0, 0, 0.1);
@@ -133,14 +175,21 @@
   --mobile-bar-height: 52px;
   --content-max-width: 1600px;
 
-  /* ---- Torrent state colours ------------------------------------------ */
-  --state-download: #34c759;
-  --state-upload: #007aff;
-  --state-paused: #8e8e93;
-  --state-error: #ff3b30;
-  --state-stalled: #ff9500;
-  --state-queued: #5ac8fa;
-  --state-checking: #af52de;
+  /*
+   * ---- Torrent state colours ------------------------------------------
+   *
+   * These are used as TEXT (speed figures under a name, the state tone of a
+   * progress bar's label), so they must clear AA on a white card. The vivid
+   * macOS set does not: #34c759 measures 2.22:1 and #ff9500 2.20:1 there.
+   * Values below are measured against #ffffff and #f5f5f7.
+   */
+  --state-download: #1f7a34; /* 5.40 on a card */
+  --state-upload: #0b5fae; /* 5.9 on a card, 5.2 on the tinted chips */
+  --state-paused: #5a5a5e; /* 5.27 — was #8e8e93 (3.26) in both themes */
+  --state-error: #c62828; /* 5.62 */
+  --state-stalled: #a34a00; /* 5.5 */
+  --state-queued: #0b5fae; /* 5.9 */
+  --state-checking: #8b3aa8; /* 5.32 */
 
   color-scheme: light;
 }
@@ -155,6 +204,13 @@
   --accent-pressed: #0060df;
   --accent-soft: rgba(10, 132, 255, 0.18);
   --on-accent: #ffffff;
+  /*
+   * Dark primary buttons: white on the vivid #0a84ff measures only 3.65, so the
+   * fill is darkened to the same value the light theme uses.
+   */
+  --accent-fill: #0b6bcb;
+  /* Dark destructive fill: white on #ff453a measured only 3.41. */
+  --danger-fill: #d92c22;
 
   --success: #30d158;
   --success-soft: rgba(48, 209, 88, 0.18);
@@ -163,6 +219,19 @@
   --danger: #ff453a;
   --danger-soft: rgba(255, 69, 58, 0.18);
   --info: #64d2ff;
+
+  /*
+   * Text variants for dark mode.
+   *
+   * Dark surfaces are more forgiving than light ones, but the tinted chips are
+   * not: the accent at #0a84ff measures 3.82 there and the danger at #ff453a
+   * 4.09. Text therefore uses slightly lightened versions, while fills, dots
+   * and progress bars keep the vivid macOS colours.
+   */
+  --accent-text: #5aabff; /* 5.15 on the tinted chip, 5.78 on a card */
+  --success-text: #4ade6a;
+  --warning-text: #ffb340;
+  --danger-text: #ff7b72;
 
   --bg-window: #161618;
   --bg-base: #1e1e20;
@@ -175,10 +244,10 @@
   --bg-selected: rgba(10, 132, 255, 0.22);
 
   --text-primary: #f5f5f7;
-  --text-secondary: #a1a1a6;
-  --text-tertiary: #8e8e93;
+  --text-secondary: #b0b0b5; /* was #a1a1a6: only 3.9 on the tinted chips */
+  --text-tertiary: #b0b0b5; /* 4.65 on the tinted chips */
   --text-inverse: #1d1d1f;
-  --text-link: #0a84ff;
+  --text-link: #4da3ff;
 
   --border: rgba(255, 255, 255, 0.12);
   --border-strong: rgba(255, 255, 255, 0.2);
@@ -207,6 +276,24 @@
   );
   /* Barely-there sheen; anything stronger looks like plastic in dark mode. */
   --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 60%);
+
+  /*
+   * Torrent state colours for dark surfaces.
+   *
+   * `--state-*` was previously declared ONLY on `:root`, so the light (vivid)
+   * values were also used in dark mode by accident. Now that the light values
+   * are darkened for AA on white, dark mode needs its own set — otherwise dark
+   * mode would inherit colours chosen for a white background and lose contrast
+   * in the opposite direction. These are the vivid macOS colours, which are
+   * correct against #2c2c2e.
+   */
+  --state-download: #30d158;
+  --state-upload: #5aabff; /* 5.78 on a row, 5.15 on a card — #0a84ff was 3.82 */
+  --state-paused: #a8a8ad;
+  --state-error: #ff7b72;
+  --state-stalled: #ffb340;
+  --state-queued: #64d2ff;
+  --state-checking: #bf5af2;
 
   --glass-saturate: 160%;
 

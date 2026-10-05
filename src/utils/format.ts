@@ -204,17 +204,24 @@ export function stateTone(state: TorrentState | string | undefined): StateTone {
 /** True when the torrent is actively transferring (for the "active" filter). */
 export function isActive(torrent: { state: string; dlspeed: number; upspeed: number }): boolean {
   if (torrent.dlspeed > 0 || torrent.upspeed > 0) return true
-  return ['downloading', 'uploading', 'forcedDL', 'forcedUP', 'metaDL'].includes(torrent.state)
+  return ['downloading', 'uploading', 'forcedDL', 'forcedUP', 'metaDL', 'forcedMetaDL'].includes(
+    torrent.state,
+  )
 }
 
-/** True for states where a "resume" action makes sense. */
+/**
+ * True for states where a "resume" action makes sense.
+ *
+ * Kept under its original name for compatibility with existing call sites and
+ * tests; it delegates to `isStopped` so both naming generations are covered.
+ */
 export function isPaused(state: string): boolean {
-  return state === 'pausedDL' || state === 'pausedUP'
+  return isStopped(state)
 }
 
-/** True for states where a "pause" action makes sense. */
+/** True for states where a "stop" action makes sense. */
 export function isRunning(state: string): boolean {
-  return !isPaused(state) && state !== 'error' && state !== 'missingFiles'
+  return !isStopped(state) && state !== 'error' && state !== 'missingFiles'
 }
 
 /** Whether the torrent is finished downloading. */

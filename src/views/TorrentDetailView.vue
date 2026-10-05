@@ -23,6 +23,7 @@ import {
   formatRatio,
   formatSpeed,
   formatTimestamp,
+  isStopped,
   stateTone,
 } from '@/utils/format'
 import type { TorrentFile, TorrentProperties, TorrentTracker } from '@/types/api'
@@ -163,9 +164,14 @@ async function doAction(label: string, fn: () => Promise<unknown>): Promise<void
   }
 }
 
-const isPaused = computed(() =>
-  ['pausedDL', 'pausedUP'].includes(torrent.value?.state ?? ''),
-)
+/**
+ * Whether the primary action should be "start" rather than "stop".
+ *
+ * Uses the shared helper so both naming generations are covered: 5.x reports
+ * `stoppedDL`/`stoppedUP`, and matching only `paused*` made a stopped torrent
+ * offer a "Stop" button that posted `torrents/stop` to something already stopped.
+ */
+const isPaused = computed(() => isStopped(torrent.value?.state))
 
 async function copyMagnet(): Promise<void> {
   const tr = torrent.value
@@ -215,11 +221,24 @@ function dirName(name: string): string {
   return splitPath(name).dir
 }
 
+/**
+ * Change a file's priority, then refetch the list.
+ *
+ * The refetch is a SECOND write path into `files`, and it needs the same
+ * identity check `loadTab` uses. Without it, changing a priority on torrent A
+ * and navigating to torrent B painted A's file list over B's when A's response
+ * came back — wrong data presented as if it were current, which is exactly the
+ * hazard AGENT.md §14 describes.
+ */
 async function setFilePriority(file: TorrentFile, priority: number): Promise<void> {
-  await doAction(t('detail.priority'), () =>
-    api.setFilePriority(hash.value, [file.index], priority),
-  )
-  files.value = await api.getTorrentFiles(hash.value).catch(() => files.value)
+  const h = hash.value
+  await doAction(t('detail.priority'), () => api.setFilePriority(h, [file.index], priority))
+  if (!h) return
+  const token = ++loadToken
+  const result = await api.getTorrentFiles(h).catch(() => null)
+  // Discard a result that belongs to a torrent we have since navigated away from.
+  if (token !== loadToken || hash.value !== h) return
+  if (result) files.value = result
 }
 </script>
 

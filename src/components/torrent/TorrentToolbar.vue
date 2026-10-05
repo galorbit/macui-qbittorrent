@@ -158,28 +158,30 @@ function onCategoryChange(value: string): void {
   box-shadow: var(--shadow-lg);
 }
 
+/*
+ * Mobile: the action row WRAPS instead of scrolling sideways.
+ *
+ * It used to be `nowrap` + `overflow-x: auto`, which pushed every button past
+ * the first two behind a horizontal swipe — with no scrollbar and no fade, so
+ * the toolbar genuinely looked like it offered only "start" and "stop". The
+ * lifecycle trio therefore lands on the first row (start / stop / force start),
+ * which is what a selection is usually for, and the rest wraps below.
+ */
 .toolbar--mobile .toolbar__actions {
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-  padding-bottom: 2px;
+  flex-wrap: wrap;
+  overflow-x: visible;
 }
 
 /*
  * Buttons must not shrink.
  *
- * With `nowrap` plus the default `flex-shrink: 1`, each button was compressed
- * below the width of its own label, so the text spilled out of one button and
- * over its neighbour ("移除" was drawn underneath the delete button). The row is
- * meant to scroll horizontally, which only works if the items keep their
- * natural width.
+ * With the old `nowrap` row and the default `flex-shrink: 1`, each button was
+ * compressed below the width of its own label, so the text spilled out of one
+ * button and over its neighbour ("移除" was drawn underneath the delete
+ * button). Wrapping keeps them at their natural width without them overlapping.
  */
 .toolbar--mobile .toolbar__actions > * {
   flex: 0 0 auto;
-}
-
-.toolbar--mobile .toolbar__actions::-webkit-scrollbar {
-  display: none;
 }
 
 .toolbar--mobile .toolbar__spacer {
