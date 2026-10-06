@@ -1,0 +1,72 @@
+# Gitea Actions CI。
+#
+# 职责只有一个:**校验**。它不产出可部署的包 —— 部署机没有 Node.js,
+# 用的是 `dist` 分支上的编译产物,那份产物仍由开发机上的 `pnpm release`
+# 构建并推送(原因见 AGENT.md 第二节)。CI 里没有凭据,也不该有。
+#
+# 步骤与 AGENT.md §八「提交前自检」是**同一条链、同一个顺序**:两边一旦分叉,
+# 贡献者会同时不再信任这两者。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: 校验
+    runs-on: ubuntu-latest
+    env:
+      # 国内 npm 镜像。runner 已把该域名列入 job 容器的 NO_PROXY(容器内实测可直连),
+      # 所以依赖是直连下载的:不走代理,不消耗代理套餐流量。
+      npm_config_registry: https://registry.npmmirror.com
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # 与 package.json 的 packageManager 保持一致
+          version: 9.15.4
+          # 安装依赖交给下面显式的 `pnpm install --frozen-lockfile`,
+          # 不让 action 自己跑一遍
+          run_install: false
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          # .nvmrc 是唯一真相来源(package.json 的 engines 只写了下界)
+          node-version-file: .nvmrc
+          # 缓存 pnpm store(缓存服务在 runner 本机内网,不耗代理流量)
+          cache: pnpm
+
+      - name: 安装依赖
+        # lockfile 漂移必须在这里红,而不是靠构建时的偶发差异发现
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 构建
+        # 含 scripts/postbuild.mjs: 按 qBittorrent 的遍历规则校验产物布局
+        run: pnpm build
+
+      - name: 产物结构校验
+        run: pnpm verify:dist
+
+      - name: 登录入口校验
+        run: pnpm verify:entry
+
+      - name: 设置页布局校验
+        run: pnpm verify:settings
+
+      - name: 单元测试
+        # 放在构建之后, 好让依赖 dist/ 的布局测试真的执行(265 项);
+        # 没有 dist/ 时它们会跳过(250 项), 那条路径由本地开发覆盖。
+        run: pnpm test

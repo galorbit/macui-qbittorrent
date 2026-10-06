@@ -225,6 +225,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pnpm verify:entry` — an automated harness that boots the built sign-in page
   in jsdom and checks all four flows (no session, wrong credentials, banned IP,
   valid session), including that navigation happens *after* authentication.
+- **A CI workflow again (`.gitea/workflows/ci.yml`), now that the hosting Gitea
+  instance has an Actions runner.** It runs the same chain, in the same order, as
+  the documented local check: lint, typecheck, build, the three artefact/entry
+  verifications, then the unit tests — *after* the build, so the `dist/`-dependent
+  layout specs actually execute (265 rather than 250-with-15-skipped).
+
+  It deliberately does not publish. The deployable `dist` branch stays a product
+  of `pnpm release` on a development machine, and CI holds no credentials of its
+  own — a workflow that could push is a workflow that can publish by accident.
 
 ### Changed
 
@@ -273,7 +282,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- `.gitea/workflows/ci.yml` (no runner available on the target instance).
+- `.gitea/workflows/ci.yml` — the target instance had no Actions runner at the
+  time. Restored in this same release once one existed; see Added.
 
 ## [0.1.0] - 2025-01-01
 

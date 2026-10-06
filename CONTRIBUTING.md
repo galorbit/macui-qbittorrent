@@ -23,16 +23,25 @@ looks like a login bug but is not.
 
 ## Before opening a pull request
 
-There is **no CI runner configured** on the Gitea instance hosting this project,
-so please run the full check locally before pushing. Maintainers rely on it.
+The Gitea instance hosting this project has an Actions runner, so a push to
+`main` or a pull request runs the full check — see `.gitea/workflows/ci.yml`.
+**CI only verifies.** Releases stay a deliberate local act (`pnpm release`),
+because the deployable `dist` branch is built on a development machine.
+
+Please run the same chain locally before pushing: CI is a backstop, not a
+substitute for seeing it pass yourself.
 
 ```bash
+pnpm lint
 pnpm typecheck
-pnpm test
-pnpm build        # includes postbuild validation of the dist/ layout
+pnpm build            # includes postbuild validation of the dist/ layout
+pnpm verify:dist
+pnpm verify:entry
+pnpm verify:settings
+pnpm test             # after the build, so the dist/-dependent tests run too
 ```
 
-All three must pass. The build is not merely a compile step: `scripts/postbuild.mjs`
+All of them must pass. The build is not merely a compile step: `scripts/postbuild.mjs`
 validates the output against constraints qBittorrent enforces at runtime.
 
 ## Hard constraints (do not break these)

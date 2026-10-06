@@ -800,8 +800,15 @@ pnpm build && pnpm publish:dist   # 重建 dist 并推到所有远程
   推送时用临时远程地址或凭据助手,用完即改回无凭据的 URL。
   AGENT.md 曾经在这里写着自建 Gitea 的地址和一个令牌环境变量名,
   这些内容会随着仓库公开而暴露 —— 换仓库时**记得一并清理**。
-- **项目内不要添加 CI workflow** —— 构建在开发机上手动完成,
-  产物通过 `dist` 分支分发。原因见第二节。
+- **CI 只校验,不发布。** `.gitea/workflows/ci.yml` 跑在自建 Gitea 的 runner 上
+  (push 到 `main` / PR / 手动触发),执行的就是下面「提交前自检」那条链。
+  **它没有凭据,不推任何分支** —— 构建与发布仍然只发生在开发机上
+  (`pnpm release`),可部署产物通过 `dist` 分支分发(见第二节)。
+
+  > 这里原本写着「项目内不要添加 CI workflow」,那是对的:当时自建 Gitea 上
+  > 没有 runner,workflow 只会挂在那里假装在检查。runner 就位后把它加了回来。
+  > **runner 若再下线,要连同这个 workflow 一起处理** —— 不要留下一个永远
+  > 不跑的绿灯。
 
 提交信息写**为什么**,不写**做了什么**(后者看 diff 就知道)。
 特别要记录"这个改动修复了什么真实故障",因为下一个人很可能想"简化"掉它。
@@ -809,9 +816,10 @@ pnpm build && pnpm publish:dist   # 重建 dist 并推到所有远程
 ### 提交前自检
 
 ```bash
-# 1) 全量校验
-pnpm typecheck && pnpm lint && pnpm test
-pnpm build && pnpm verify:dist && pnpm verify:entry && pnpm verify:settings
+# 1) 全量校验 —— 与 CI(.gitea/workflows/ci.yml)同一条链、同一个顺序
+pnpm lint && pnpm typecheck && pnpm build
+pnpm verify:dist && pnpm verify:entry && pnpm verify:settings
+pnpm test          # 放在 build 之后:依赖 dist/ 的布局测试才会真的跑(265 项)
 
 # 2) 隐私扫描（不要提交主机名、内网 IP、令牌、本地绝对路径）
 git grep -n -I -E 'token|secret|password|192\.168\.|10\.0\.0\.|/home/|/Users/' \
